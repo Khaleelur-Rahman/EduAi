@@ -5,7 +5,7 @@ from typing import List, Dict, Any, Optional
 
 def format_for_whatsapp(text: str, age_group: int) -> str:
     
-    formatted_text = apply_whatsapp_formatting(formatted_text)
+    formatted_text = apply_whatsapp_formatting(text)
     
     formatted_text = improve_readability(formatted_text)
     

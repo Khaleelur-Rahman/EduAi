@@ -204,7 +204,7 @@ What would you like to learn about first? 🚀
             
             formatted_lesson = format_for_whatsapp(lesson_content, user.age)
             
-            return f"📚 *{current_lesson.topic} - Part {current_lesson.lesson_step}*\n\n{formatted_lesson}\n\n_Type `/next` to continue or `/lesson <topic>` for something new!_"
+            return f"📚 *{current_lesson.topic.title()} - Part {current_lesson.lesson_step}*\n\n{formatted_lesson}\n\n_Type `/next` to continue or `/lesson <topic>` for something new!_"
         
         except Exception as e:
             logger.error(f"Failed to generate next lesson part: {str(e)}")

@@ -1,0 +1,37 @@
+# FastAPI and web framework dependencies
+fastapi==0.104.1
+uvicorn==0.24.0
+python-multipart==0.0.6
+
+# Database
+sqlalchemy==2.0.23
+alembic==1.12.1
+
+# Twilio for WhatsApp integration
+twilio==8.10.3
+
+# AI/ML dependencies
+transformers>=4.46.0
+torch>=2.1.0
+accelerate>=0.28.0
+safetensors>=0.4.0
+
+# Environment and configuration
+python-dotenv==1.0.0
+pyngrok==7.0.0
+
+# HTTP requests
+requests==2.31.0
+openai>=1.0.0  # For OpenRouter API compatibility
+
+# Logging and debugging
+logging==0.4.9.6
+
+# Validation
+pydantic==2.5.0
+
+# Date/time utilities
+python-dateutil==2.8.2
+
+# Optional: For better performance with transformers
+# optimum[onnxruntime]==1.16.0  # Uncomment for ONNX acceleration

@@ -132,11 +132,12 @@ Instructions:
    1. Brief introduction
    2. Key explanation (step by step, or definition + example)
    3. Real-life analogy or story that makes it easy to remember
-   4. One simple practice question at the end
 
-Make sure the explanation is **accurate**, **easy to follow**, and **age-appropriate**."""
+Make sure the explanation is **accurate**, **easy to follow**, and **age-appropriate**.
+
+IMPORTANT: Focus only on teaching the topic. Do not introduce yourself or respond to greetings. Start directly with the lesson content."""
         
-        greeting = f"Hey {user_name}! " if user_name else ""
+        greeting = ""
         user_prompt = f"""{greeting}Please teach me about {topic}."""
         
         return system_prompt, user_prompt

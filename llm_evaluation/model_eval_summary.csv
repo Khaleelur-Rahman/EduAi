@@ -1,0 +1,5 @@
+model_name,overall_score_mean,overall_score_std,overall_score_min,overall_score_max,latency_seconds_mean,latency_seconds_std,latency_seconds_min,latency_seconds_max,factual_accuracy_mean,clarity_mean,relevance_mean
+llama-3.3-70b,90.7,7.3,71.7,97.7,0.7,0.2,0.4,1.1,89.6,89.7,92.8
+llama-4-maverick-17b,89.4,7.4,71.7,97.7,0.9,0.3,0.7,1.5,90.7,88.6,88.9
+llama-4-scout-17b,87.5,7.8,71.7,95.7,1.1,1.0,0.4,3.9,87.2,87.5,87.8
+qwen-3-235b-a22b-instruct,92.5,4.7,81.7,97.7,1.5,0.6,0.8,2.5,95.3,90.8,91.5

@@ -11,11 +11,27 @@ from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
 import markdown
 from sqlalchemy.orm import Session
+from sentence_transformers import CrossEncoder
 
 from .db import Progress, get_current_lesson, create_progress, update_progress
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+class VectorStore:
+    def __init__(self, chroma_client, collection_name, embedding_model_name='sentence-transformers/all-MiniLM-L6-v2', use_reranker=True):
+        self.chroma_client = chroma_client
+        self.collection_name = collection_name
+        self.embedding_model = SentenceTransformer(embedding_model_name)
+        self.collection = self.chroma_client.get_or_create_collection(
+            name=self.collection_name,
+            metadata={"hnsw:space": "cosine"}
+        )
+        self.use_reranker = use_reranker
+
+        # Initialize re-ranker (optional but very helpful)
+        if self.use_reranker:
+            self.reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
 
 class RAGService:
     """
@@ -23,13 +39,15 @@ class RAGService:
     Handles document loading, embedding, and retrieval for age-appropriate science lessons.
     """
     
-    def __init__(self, data_dir: str = "./data/science", collection_name: str = "science_lessons"):
+    def __init__(self, data_dir: str = "./data/science", collection_name: str = "science_lessons", use_reranker: bool = True):
         self.data_dir = Path(data_dir)
         self.collection_name = collection_name
         self.embedding_model = None
         self.chroma_client = None
         self.collection = None
         self._initialized = False
+        self.use_reranker = use_reranker
+        self.reranker = None
         
     def initialize(self):
         """Initialize the RAG service with embedding model and vector database."""
@@ -42,6 +60,11 @@ class RAGService:
             # Initialize embedding model
             logger.info("Loading sentence transformer model...")
             self.embedding_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+            
+            # Initialize re-ranker if enabled
+            if self.use_reranker:
+                logger.info("Loading cross-encoder reranker...")
+                self.reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
             
             # Initialize ChromaDB
             logger.info("Initializing ChromaDB...")
@@ -167,41 +190,59 @@ class RAGService:
         """Extract topic from filename."""
         return filename.replace('.md', '').replace('_', ' ').title()
     
-    def retrieve_relevant_chunks(self, query: str, age_group: int, limit: int = 3) -> List[Dict[str, Any]]:
-        """Retrieve relevant chunks for a given query."""
-        if not self._initialized:
-            self.initialize()
+    def retrieve_relevant_chunks(self, query: str, limit: int = 5):
+        # Step 1: Embed the query
+        query_embedding = self.embedding_model.encode(query, convert_to_numpy=True)
+
+        # Step 2: Query Chroma
+        results = self.collection.query(
+            query_embeddings=[query_embedding],
+            n_results=limit * 3,  # fetch more to allow reranker to refine
+            include=['documents', 'metadatas', 'distances']
+        )
+
+        documents = results['documents'][0]
+        metadatas = results['metadatas'][0]
+        distances = results['distances'][0]
+
+        # Step 3: Normalize cosine distance → similarity score
+        similarities = [(1 - d / 2) for d in distances]  # for cosine distance ∈ [0,2]
+        results_with_scores = list(zip(documents, metadatas, similarities))
+
+        # Step 4: Optional re-ranking with cross-encoder
+        if self.use_reranker:
+            # Prepare pairs (query, doc)
+            pairs = [(query, doc) for doc, _, _ in results_with_scores]
+            rerank_scores = self.reranker.predict(pairs)
+            
+            # Normalize rerank scores to [0, 1] range
+            min_rerank = min(rerank_scores)
+            max_rerank = max(rerank_scores)
+            if max_rerank > min_rerank:
+                normalized_rerank_scores = [(score - min_rerank) / (max_rerank - min_rerank) for score in rerank_scores]
+            else:
+                normalized_rerank_scores = [0.5] * len(rerank_scores)  # All same score
+            
+            # Combine both scores (weighted)
+            rerank_weight = 0.7  # 70% re-ranker, 30% embedding similarity
+            for i, (doc, meta, sim) in enumerate(results_with_scores):
+                combined_score = rerank_weight * normalized_rerank_scores[i] + (1 - rerank_weight) * sim
+                results_with_scores[i] = (doc, meta, combined_score)
+
+        # Step 5: Sort by combined score (descending)
+        ranked_results = sorted(results_with_scores, key=lambda x: x[2], reverse=True)
+
+        # Step 6: Convert to dictionary format and return top-k final results
+        chunks = []
+        for doc, metadata, similarity_score in ranked_results[:limit]:
+            chunks.append({
+                'content': doc,
+                'metadata': metadata,
+                'similarity_score': similarity_score,
+                'chunk_id': f"{metadata['source'].replace('.md', '').replace('.pdf', '')}_{metadata['chunk_id']}"
+            })
         
-        try:
-            # Generate query embedding
-            query_embedding = self.embedding_model.encode([query]).tolist()[0]
-            
-            # Search for similar chunks
-            results = self.collection.query(
-                query_embeddings=[query_embedding],
-                n_results=limit,
-                include=['documents', 'metadatas', 'distances']
-            )
-            
-            chunks = []
-            for i, (doc, metadata, distance) in enumerate(zip(
-                results['documents'][0],
-                results['metadatas'][0],
-                results['distances'][0]
-            )):
-                chunks.append({
-                    'content': doc,
-                    'metadata': metadata,
-                    'similarity_score': 1 - distance,  # Convert distance to similarity
-                    'chunk_id': f"{metadata['source'].replace('.md', '')}_{metadata['chunk_id']}"
-                })
-            
-            logger.info(f"Retrieved {len(chunks)} relevant chunks for query: {query}")
-            return chunks
-            
-        except Exception as e:
-            logger.error(f"Error retrieving chunks: {str(e)}")
-            return []
+        return chunks
     
     def get_next_chunk(self, topic: str, current_chunk_id: str, age_group: int) -> Optional[Dict[str, Any]]:
         """Get the next chunk for continuing a lesson."""
@@ -306,12 +347,11 @@ Instructions:
 - Style: {style_guide}
 - Use the provided educational content as your source of information
 - Make sure all facts are accurate and age-appropriate
-- Structure: Brief introduction, key explanation, fun example, and one simple question
+- Structure: Brief introduction, key explanation and a fun example
 
 Important: Base your lesson on the provided educational content. Do not make up facts that aren't in the source material."""
 
-        greeting = f"Hey {user_name}! " if user_name else ""
-        user_prompt = f"""{greeting}Please teach me about {topic} using this educational content:
+        user_prompt = f"""Please teach me about {topic} using this educational content:
 
 {context}
 
@@ -327,10 +367,10 @@ def initialize_rag():
     rag_service.initialize()
 
 def get_rag_lesson(topic: str, age_group: int, user_name: str = "", 
-                  current_chunk_id: str = None) -> Tuple[str, str]:
+                  current_chunk_id: str = None) -> Tuple[str, str, Optional[str]]:
     """
     Generate a RAG-based lesson for the given topic.
-    Returns (lesson_content, chunk_id) for progress tracking.
+    Returns (system_prompt, user_prompt, chunk_id) for lesson generation.
     """
     if not rag_service._initialized:
         rag_service.initialize()

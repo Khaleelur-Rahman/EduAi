@@ -26,7 +26,7 @@ def test_rag_system():
         # Test topics for different age groups
         test_cases = [
             {"age": 8, "topic": "sodium", "name": "Alex"},
-            {"age": 10, "topic": "chlorophyll", "name": "Sam"},
+            {"age": 10, "topic": "gas", "name": "Sam"},
             {"age": 12, "topic": "molecules", "name": "Jordan"}
         ]
         
@@ -53,9 +53,6 @@ def test_rag_system():
                 system_prompt, user_prompt, chunk_id = get_rag_lesson(topic, age, name)
                 
                 print(f"🔬 Generated lesson prompt (chunk_id: {chunk_id})")
-                print(f"System prompt length: {len(system_prompt)} characters")
-                print(f"User prompt length: {len(user_prompt)} characters")
-                print()
                 
                 # Generate actual lesson
                 try:

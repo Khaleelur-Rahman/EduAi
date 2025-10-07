@@ -1,0 +1,58 @@
+{
+  "evaluation_config": {
+    "lesson_prompts": [
+      "Explain photosynthesis to a 12-year-old.",
+      "Describe the process of mitosis.",
+      "What are alkaline elements?",
+      "Explain how acids and bases react together.",
+      "Give a summary of chemical bonding in simple terms."
+    ],
+    "quiz_prompts": [
+      "Generate a 3-question multiple-choice quiz on photosynthesis.",
+      "Generate a 3-question multiple-choice quiz on alkaline elements",
+      "Generate a 3-question multiple-choice quiz on mitosis",
+      "Generate a 3-question multiple-choice quiz on acids and bases.",
+      "Generate a 3-question multiple-choice quiz on chemical bonding."
+    ],
+    "models": {
+      "cerebras": [
+        {
+          "name": "qwen-3-235b-a22b-instruct",
+          "model_id": "qwen-3-235b-a22b-instruct-2507",
+          "max_tokens": 1000,
+          "temperature": 0.7
+        },
+        {
+          "name": "llama-3.3-70b",
+          "model_id": "llama-3.3-70b",
+          "max_tokens": 1000,
+          "temperature": 0.7
+        },
+        {
+          "name": "llama-4-maverick-17b",
+          "model_id": "llama-4-maverick-17b-128e-instruct",
+          "max_tokens": 1000,
+          "temperature": 0.7
+        },
+        {
+          "name": "llama-4-scout-17b",
+          "model_id": "llama-4-scout-17b-16e-instruct",
+          "max_tokens": 1000,
+          "temperature": 0.7
+        }
+      ]
+    },
+    "evaluation_criteria": {
+      "factual_accuracy": "How accurate and correct is the information?",
+      "clarity": "How clear and easy to understand is the explanation?",
+      "relevance": "How well does the response address the original prompt?"
+    },
+    "output_files": {
+      "raw_results": "model_eval_raw.csv",
+      "scored_results": "model_eval_scores.csv",
+      "summary": "model_eval_summary.csv",
+      "visualization": "model_evaluation_results.png",
+      "log": "evaluation.log"
+    }
+  }
+}

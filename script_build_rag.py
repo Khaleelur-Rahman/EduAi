@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Quick script to rebuild RAG database when adding new PDFs
+Quick script to build RAG database when adding new PDFs
 """
 
 import os
@@ -10,25 +10,24 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'app'))
 
 from app.rag import initialize_rag
 
-def rebuild_rag_database():
-    """Clear existing database and rebuild with all PDFs and markdown files"""
-    print("🔄 Rebuilding RAG Database")
+def build_rag_database():
+    """Clear existing database and build with all PDFs and markdown files"""
+    print("Building RAG Database")
     print("=" * 50)
     
     # Clear existing database
     if os.path.exists("chroma_db"):
-        print("🗑️  Clearing existing database...")
+        print("Clearing existing database...")
         shutil.rmtree("chroma_db")
-        print("✅ Database cleared")
+        print("Database cleared")
     else:
-        print("ℹ️  No existing database found")
+        print("No existing database found")
     
-    # Rebuild database
-    print("\n🔨 Rebuilding database with all content...")
+    print("\nBuilding database with all content...")
     try:
         initialize_rag()
-        print("✅ Database rebuilt successfully!")
-        print("\n📊 Content processed:")
+        print("Database built successfully!")
+        print("\n Content processed:")
         
         # List processed files
         data_dir = "./data/science"
@@ -44,13 +43,13 @@ def rebuild_rag_database():
             for f in pdf_files:
                 print(f"    - {f}")
         
-        print(f"\n🎉 Ready to use! Run 'python test_rag.py demo' to test with chemistry topics")
+        print(f"\nReady to use! Run 'python test_rag.py demo' to test with chemistry topics")
         
     except Exception as e:
-        print(f"❌ Error rebuilding database: {e}")
+        print(f"Error building database: {e}")
         return False
     
     return True
 
 if __name__ == "__main__":
-    rebuild_rag_database()
+    build_rag_database()

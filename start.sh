@@ -14,6 +14,7 @@ if [ ! -f ".env" ]; then
     echo "Error: .env file not found"
     echo "Create .env file with:"
     echo "OPENROUTER_API_KEY=your_key"
+    echo "CEREBRAS_API_KEY=your_key"
     echo "TWILIO_ACCOUNT_SID=your_sid"
     echo "TWILIO_AUTH_TOKEN=your_token"
     echo "TWILIO_PHONE_NUMBER=your_number"

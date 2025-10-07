@@ -49,8 +49,8 @@ def test_quiz_after_multiple_parts():
         print("\n3. Testing quiz after multiple lesson parts...")
         
         # Step 1: Start a lesson
-        print("\n📚 Step 1: Starting lesson on 'photosynthesis'")
-        response1 = process_whatsapp_message(db, test_phone, "/lesson photosynthesis")
+        print("\n📚 Step 1: Starting lesson on 'gas'")
+        response1 = process_whatsapp_message(db, test_phone, "/lesson gas")
         print(f"Response 1: {response1[:150]}...")
         
         # Check lesson details

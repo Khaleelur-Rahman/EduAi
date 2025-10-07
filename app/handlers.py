@@ -1,5 +1,5 @@
 import logging
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List, Dict
 from sqlalchemy.orm import Session
 
 from .db import User, Progress, get_user_by_phone, create_user, update_user, create_progress, get_current_lesson, update_progress, get_current_quiz
@@ -27,33 +27,8 @@ class MessageHandler:
             'language': 'What language would you like to learn in? (Currently supporting English - just type "english" or "en")'
         }
         
-        # Science topics that can use RAG
-        self.science_topics = {
-            # Biology topics (from Concepts of Biology textbook)
-            'cell', 'cells', 'DNA', 'evolution', 'ecosystem', 'photosynthesis', 
-            'mitosis', 'genetics', 'bacteria', 'virus', 'mammals', 'chromosome',
-            'protein', 'enzyme', 'respiration', 'adaptation', 'organism', 'tissue',
-            'organ', 'system', 'membrane', 'nucleus', 'mitochondria', 'chloroplast',
-            'gene', 'allele', 'mutation', 'species', 'population', 'community',
-            'biome', 'food chain', 'food web', 'decomposer', 'producer', 'consumer',
-            
-            # Chemistry topics (from Chemistry2e textbook)
-            'atom', 'atoms', 'molecule', 'molecules', 'element', 'elements',
-            'compound', 'compounds', 'sodium', 'chlorine', 'hydrogen', 'oxygen',
-            'carbon', 'nitrogen', 'measurements', 'measurement', 'units', 'unit',
-            'density', 'mass', 'volume', 'temperature', 'pressure', 'reaction',
-            'chemical', 'chemistry', 'periodic table', 'periodic', 'table',
-            'bond', 'bonds', 'ionic', 'covalent', 'metal', 'metals', 'nonmetal',
-            'acid', 'base', 'ph', 'solution', 'solutions', 'mixture', 'mixtures',
-            
-            # Original topics
-            'plants', 'trees', 'leaves', 'roots', 'flowers',
-            'animals', 'birds', 'fish', 'reptiles', 'amphibians', 'habitats',
-            'solar system', 'planets', 'sun', 'moon', 'earth', 'mars', 'jupiter', 'saturn',
-            'energy', 'light', 'heat', 'sound', 'electricity', 'renewable energy',
-            'weather', 'rain', 'snow', 'wind', 'clouds', 'climate',
-            'water cycle', 'evaporation', 'condensation', 'precipitation'
-        }
+        # RAG confidence threshold for determining if retrieved content is relevant
+        self.rag_confidence_threshold = 0.6
     
     def process_message(self, db: Session, phone_number: str, message: str) -> str:
         try:
@@ -214,23 +189,16 @@ What would you like to learn about first? 🚀
         if not topic:
             return "Please specify a topic! For example: `/lesson fractions` or `/lesson photosynthesis` 📚"
         
-        # Check if this is a science topic that can use RAG
-        if self._is_science_topic(topic):
-            return self._handle_rag_lesson_command(db, user, message)
+        # Try RAG retrieval first for any topic
+        rag_success, retrieved_chunks, chunk_id = self._try_rag_retrieval(topic, user)
+        logger.info(f"RAG success: {rag_success}, retrieved chunks: {retrieved_chunks}, chunk_id: {chunk_id}")
         
-        # For non-science topics, use the original LLM approach
-        try:
-            lesson_content = generate_lesson(topic, user.age, user.name)
-            progress = create_progress(db, user.id, topic, lesson_content)
-            formatted_lesson = format_for_whatsapp(lesson_content, user.age)
-            
-            logger.info(f"Generated lesson for user {user.phone_number} on topic: {topic}")
-            
-            return f"📚 *Lesson: {topic.title()}*\n\n{formatted_lesson}\n\n_Type `/next` for more on this topic or `/lesson <new topic>` for something else!_"
-        
-        except Exception as e:
-            logger.error(f"Failed to generate lesson for topic {topic}: {str(e)}")
-            return f"Sorry, I had trouble creating a lesson on {topic}. Please try a different topic or try again later! 📚"
+        if rag_success:
+            # High confidence RAG retrieval - generate lesson using RAG content
+            return self._generate_rag_lesson(db, user, topic, retrieved_chunks, chunk_id)
+        else:
+            # Low confidence or no RAG content - fallback to base LLM generation
+            return self._generate_base_llm_lesson(db, user, topic)
     
     def _handle_next_command(self, db: Session, user: User) -> str:
         current_lesson = get_current_lesson(db, user.id)
@@ -241,13 +209,13 @@ What would you like to learn about first? 🚀
         try:
             # Check if this is a RAG lesson
             if current_lesson.is_rag_lesson:
-                # Use RAG for continuing science lessons
+                # Use RAG for continuing lessons
                 system_prompt, user_prompt, chunk_id = get_rag_lesson(
                     current_lesson.topic, user.age, user.name, current_lesson.chunk_id
                 )
                 
                 if chunk_id is None:
-                    return f"Great job! You've completed the lesson on {current_lesson.topic}. Try a new science topic with `/lesson <topic>`! 🔬"
+                    return f"Great job! You've completed the lesson on {current_lesson.topic}. Try a new topic with `/lesson <topic>`! 📚"
                 
                 # Generate lesson using LLM with RAG context
                 from .llm import llm_service
@@ -280,7 +248,7 @@ What would you like to learn about first? 🚀
                 
                 formatted_lesson = format_for_whatsapp(lesson_content, user.age)
                 
-                return f"🔬 *{current_lesson.topic.title()} - Part {current_lesson.lesson_step}*\n\n{formatted_lesson}\n\n_Type `/next` to continue, /quiz for a quiz related to this topic or`/lesson <topic>` for something new!_"
+                return f"📚 *{current_lesson.topic.title()} - Part {current_lesson.lesson_step}*\n\n{formatted_lesson}\n\n_Type `/next` to continue, /quiz for a quiz related to this topic or `/lesson <topic>` for something new!_"
             
             else:
                 # Use original LLM approach for non-RAG lessons
@@ -322,41 +290,14 @@ What would you like to learn about first? 🚀
         
         return format_for_whatsapp(response, user.age)
     
-    def _is_science_topic(self, topic: str) -> bool:
-        """Check if a topic is science-related and can use RAG."""
-        topic_lower = topic.lower()
-        
-        # Check for exact matches
-        if topic_lower in self.science_topics:
-            return True
-        
-        # Check for partial matches
-        for science_topic in self.science_topics:
-            if science_topic in topic_lower or topic_lower in science_topic:
-                return True
-        
-        return False
-    
-    def _handle_rag_lesson_command(self, db: Session, user: User, message: str) -> str:
-        """Handle lesson command with RAG for science topics."""
-        topic = parse_lesson_command(message)
-        if not topic:
-            return "Please specify a science topic! For example: `/lesson plants` or `/lesson solar system` 🌱🔬"
-        
-        # Check if user is in the right age range for RAG
-        if user.age < 6 or user.age > 12:
-            return f"I see you're {user.age} years old! My science lessons are designed for kids aged 6-12. Try asking about a different subject, or ask your parents to help you with science! 📚"
-        
+    def _generate_rag_lesson(self, db: Session, user: User, topic: str, retrieved_chunks: List[Dict], chunk_id: str) -> str:
+        """Generate a lesson using RAG-retrieved content."""
         try:
-            # Get current lesson to check if we're continuing
-            current_lesson = get_current_lesson(db, user.id)
-            current_chunk_id = current_lesson.chunk_id if current_lesson and current_lesson.is_rag_lesson else None
-            
-            # Generate RAG lesson
-            system_prompt, user_prompt, chunk_id = get_rag_lesson(topic, user.age, user.name, current_chunk_id)
-            
-            if chunk_id is None:
-                return f"I'm sorry, I couldn't find information about {topic} in my science database. Try asking about plants, animals, the solar system, energy, or weather! 🔬"
+            # Create prompt for LLM using RAG content
+            from .rag import rag_service
+            system_prompt, user_prompt = rag_service.create_rag_lesson_prompt(
+                topic, retrieved_chunks, user.age, user.name
+            )
             
             # Generate lesson using LLM with RAG context
             from .llm import llm_service
@@ -383,27 +324,70 @@ What would you like to learn about first? 🚀
             
             lesson_content = lesson_content.strip()
             
-            # Create or update progress
-            if current_lesson and current_lesson.is_rag_lesson and current_chunk_id:
-                # Continuing existing RAG lesson
-                update_progress(db, current_lesson, 
-                              lesson_content=lesson_content,
-                              lesson_step=current_lesson.lesson_step + 1,
-                              chunk_id=chunk_id)
-            else:
-                # New RAG lesson
-                create_progress(db, user.id, topic, lesson_content, 
-                              is_rag_lesson=True, chunk_id=chunk_id)
+            # Create progress with RAG lesson flag
+            create_progress(db, user.id, topic, lesson_content, 
+                          is_rag_lesson=True, chunk_id=chunk_id)
             
             formatted_lesson = format_for_whatsapp(lesson_content, user.age)
             
             logger.info(f"Generated RAG lesson for user {user.phone_number} on topic: {topic}")
             
-            return f"🔬 *Science Lesson: {topic.title()}*\n\n{formatted_lesson}\n\n_Type `/next` for more on this topic or `/lesson <new topic>` for something else!_"
+            return f"📚 *Lesson: {topic.title()}*\n\n{formatted_lesson}\n\n_Type `/next` for more on this topic or `/lesson <new topic>` for something else!_"
         
         except Exception as e:
             logger.error(f"Failed to generate RAG lesson for topic {topic}: {str(e)}")
-            return f"Sorry, I had trouble creating a science lesson on {topic}. Please try a different science topic or try again later! 🔬"
+            # Fallback to base LLM if RAG generation fails
+            return self._generate_base_llm_lesson(db, user, topic)
+    
+    def _generate_base_llm_lesson(self, db: Session, user: User, topic: str) -> str:
+        """Generate a lesson using base LLM without RAG."""
+        try:
+            lesson_content = generate_lesson(topic, user.age, user.name)
+            progress = create_progress(db, user.id, topic, lesson_content)
+            formatted_lesson = format_for_whatsapp(lesson_content, user.age)
+            
+            logger.info(f"Generated base LLM lesson for user {user.phone_number} on topic: {topic}")
+            
+            return f"📚 *Lesson: {topic.title()}*\n\n{formatted_lesson}\n\n_Type `/next` for more on this topic or `/lesson <new topic>` for something else!_"
+        
+        except Exception as e:
+            logger.error(f"Failed to generate lesson for topic {topic}: {str(e)}")
+            return f"Sorry, I had trouble creating a lesson on {topic}. Please try a different topic or try again later! 📚"
+    
+    def _try_rag_retrieval(self, topic: str, user: User) -> Tuple[bool, Optional[List[Dict]], Optional[str]]:
+        """
+        Try to retrieve relevant chunks from RAG database for any topic.
+        Returns (success, retrieved_chunks, chunk_id) where success indicates high confidence retrieval.
+        """
+        try:
+            # Initialize RAG if not already done
+            from .rag import initialize_rag
+            initialize_rag()
+            
+            # Retrieve relevant chunks
+            from .rag import rag_service
+            retrieved_chunks = rag_service.retrieve_relevant_chunks(topic, limit=5)
+
+            logger.info(f"Retrieved chunks: {retrieved_chunks}")
+            
+            if not retrieved_chunks:
+                return False, None, None
+            
+            # Check retrieval confidence - if all similarity scores are below threshold, 
+            # consider it low confidence
+            if all(chunk['similarity_score'] < self.rag_confidence_threshold for chunk in retrieved_chunks):
+                logger.info(f"Low confidence RAG retrieval for topic '{topic}' - scores: {[c['similarity_score'] for c in retrieved_chunks]}")
+                return False, retrieved_chunks, None
+            
+            # High confidence retrieval
+            chunk_id = retrieved_chunks[0]['chunk_id']
+            logger.info(f"High confidence RAG retrieval for topic '{topic}' - best score: {retrieved_chunks[0]['similarity_score']:.3f}")
+            return True, retrieved_chunks, chunk_id
+            
+        except Exception as e:
+            logger.error(f"Error during RAG retrieval for topic '{topic}': {str(e)}")
+            return False, None, None
+    
     
     def _handle_quiz_command(self, db: Session, user: User) -> str:
         """Handle /quiz command to create a quiz from current lesson"""

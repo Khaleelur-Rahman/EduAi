@@ -238,8 +238,9 @@ def create_quiz_from_lesson(db: Session, user_id: int, topic: str, age_group: in
         if not current_lesson:
             return "You don't have any lessons in progress. Start a lesson with `/lesson <topic>` first! 📚", 0
         
-        if not current_lesson.is_rag_lesson or not current_lesson.chunk_id:
-            return "Quizzes are only available for science lessons. Try a science topic! 🔬", 0
+        # print(f"Current lesson: {current_lesson}")
+        # if not current_lesson.is_rag_lesson or not current_lesson.chunk_id:
+        #     return "Quizzes are only available for science lessons. Try a science topic! 🔬", 0
         
         # Get the content chunk from RAG
         chunks = rag_service.retrieve_relevant_chunks(topic, age_group)
@@ -257,10 +258,13 @@ def create_quiz_from_lesson(db: Session, user_id: int, topic: str, age_group: in
             # Use the first chunk if specific chunk not found
             target_chunk = chunks[0]
         
-        # Generate quiz questions
+        # Generate quiz questions from the actual lesson content sent to WhatsApp
+        # This ensures questions align with what the student actually learned
         questions = quiz_generator.generate_quiz_from_chunk(
-            topic, target_chunk['content'], age_group, user_name
+            topic, current_lesson.lesson_content, age_group, user_name
         )
+
+        logger.info(f"current lesson: {current_lesson}")
         
         # Store quiz in database
         quiz = create_quiz_progress(
@@ -269,7 +273,7 @@ def create_quiz_from_lesson(db: Session, user_id: int, topic: str, age_group: in
             lesson_id=current_lesson.id,
             topic=topic,
             lesson_step=current_lesson.lesson_step,
-            chunk_id=current_lesson.chunk_id,
+            chunk_id=target_chunk['chunk_id'],  # Use the actual chunk_id from the target chunk
             questions=json.dumps(questions)
         )
         

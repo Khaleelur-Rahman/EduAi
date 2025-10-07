@@ -29,9 +29,8 @@ class VectorStore:
         )
         self.use_reranker = use_reranker
 
-        # Initialize re-ranker (optional but very helpful)
-        if self.use_reranker:
-            self.reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+        # if self.use_reranker:
+        #     self.reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
 
 class RAGService:
     """
@@ -57,23 +56,19 @@ class RAGService:
         try:
             logger.info("Initializing RAG service...")
             
-            # Initialize embedding model
             logger.info("Loading sentence transformer model...")
             self.embedding_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
             
-            # Initialize re-ranker if enabled
             if self.use_reranker:
                 logger.info("Loading cross-encoder reranker...")
                 self.reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
             
-            # Initialize ChromaDB
             logger.info("Initializing ChromaDB...")
             self.chroma_client = chromadb.PersistentClient(
                 path="./chroma_db",
                 settings=Settings(anonymized_telemetry=False)
             )
             
-            # Get or create collection
             try:
                 self.collection = self.chroma_client.get_collection(name=self.collection_name)
                 logger.info(f"Found existing collection: {self.collection_name}")
@@ -84,7 +79,6 @@ class RAGService:
                 )
                 logger.info(f"Created new collection: {self.collection_name}")
             
-            # Load and process documents if collection is empty
             if self.collection.count() == 0:
                 logger.info("Collection is empty, loading documents...")
                 self._load_and_process_documents()
@@ -197,7 +191,7 @@ class RAGService:
         # Step 2: Query Chroma
         results = self.collection.query(
             query_embeddings=[query_embedding],
-            n_results=limit * 3,  # fetch more to allow reranker to refine
+            n_results=limit * 3, 
             include=['documents', 'metadatas', 'distances']
         )
 
@@ -206,7 +200,7 @@ class RAGService:
         distances = results['distances'][0]
 
         # Step 3: Normalize cosine distance → similarity score
-        similarities = [(1 - d / 2) for d in distances]  # for cosine distance ∈ [0,2]
+        similarities = [(1 - d / 2) for d in distances]  # for cosine distance in [0 to 2]
         results_with_scores = list(zip(documents, metadatas, similarities))
 
         # Step 4: Optional re-ranking with cross-encoder
@@ -254,11 +248,9 @@ class RAGService:
             source, chunk_num = current_chunk_id.rsplit('_', 1)
             current_chunk_num = int(chunk_num)
             
-            # Determine the source file name (handle both .md and .pdf)
             if source.endswith('.md') or source.endswith('.pdf'):
                 source_file = source
             else:
-                # Try to find the actual source file
                 source_file = None
                 for ext in ['.md', '.pdf']:
                     test_source = f"{source}{ext}"
@@ -295,7 +287,6 @@ class RAGService:
                     }
             
             # If no immediate next chunk found, try to get any remaining chunks from the same source
-            # This handles cases where chunks might not be in sequential order
             available_chunks = []
             for doc, metadata in zip(results['documents'][0], results['metadatas'][0]):
                 if metadata['chunk_id'] > current_chunk_num:
@@ -311,7 +302,6 @@ class RAGService:
                     'chunk_id': f"{source}_{next_chunk_id}"
                 }
             
-            # If no next chunk found, return None
             return None
             
         except Exception as e:
@@ -322,7 +312,6 @@ class RAGService:
                                 age_group: int, user_name: str = "") -> Tuple[str, str]:
         """Create a prompt for generating a RAG-based lesson."""
         
-        # Age-appropriate style guide
         if age_group <= 8:
             style_guide = "Use very simple words, short sentences, and examples with toys, animals, or games. Use lots of emojis and make it fun!"
         elif age_group <= 10:
@@ -330,7 +319,6 @@ class RAGService:
         else:
             style_guide = "Use clear explanations with relatable examples and real-world situations. Make it interesting and educational!"
         
-        # Prepare context from retrieved chunks
         context_parts = []
         for i, chunk in enumerate(retrieved_chunks, 1):
             context_parts.append(f"Source {i}:\n{chunk['content']}\n")
@@ -359,7 +347,6 @@ Create a fun, engaging lesson that helps me understand {topic} better!"""
 
         return system_prompt, user_prompt
 
-# Global RAG service instance
 rag_service = RAGService()
 
 def initialize_rag():
@@ -393,7 +380,6 @@ def get_rag_lesson(topic: str, age_group: int, user_name: str = "",
     if not retrieved_chunks:
         return "I'm sorry, I couldn't find information about that topic in my science database. Try asking about plants, animals, the solar system, energy, or weather!", None
     
-    # Create prompt for LLM
     system_prompt, user_prompt = rag_service.create_rag_lesson_prompt(
         topic, retrieved_chunks, age_group, user_name
     )
@@ -401,11 +387,9 @@ def get_rag_lesson(topic: str, age_group: int, user_name: str = "",
     return system_prompt, user_prompt, chunk_id
 
 if __name__ == "__main__":
-    # Test the RAG service
     print("Testing RAG service...")
     initialize_rag()
     
-    # Test retrieval
     chunks = rag_service.retrieve_relevant_chunks("plants and photosynthesis", 8)
     print(f"Retrieved {len(chunks)} chunks")
     for chunk in chunks:

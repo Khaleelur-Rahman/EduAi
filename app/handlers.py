@@ -194,10 +194,8 @@ What would you like to learn about first? 🚀
         logger.info(f"RAG success: {rag_success}, retrieved chunks: {retrieved_chunks}, chunk_id: {chunk_id}")
         
         if rag_success:
-            # High confidence RAG retrieval - generate lesson using RAG content
             return self._generate_rag_lesson(db, user, topic, retrieved_chunks, chunk_id)
         else:
-            # Low confidence or no RAG content - fallback to base LLM generation
             return self._generate_base_llm_lesson(db, user, topic)
     
     def _handle_next_command(self, db: Session, user: User) -> str:
@@ -207,9 +205,7 @@ What would you like to learn about first? 🚀
             return "You don't have any lessons in progress. Start a new lesson with `/lesson <topic>`! 📚"
         
         try:
-            # Check if this is a RAG lesson
             if current_lesson.is_rag_lesson:
-                # Use RAG for continuing lessons
                 system_prompt, user_prompt, chunk_id = get_rag_lesson(
                     current_lesson.topic, user.age, user.name, current_lesson.chunk_id
                 )
@@ -217,7 +213,6 @@ What would you like to learn about first? 🚀
                 if chunk_id is None:
                     return f"Great job! You've completed the lesson on {current_lesson.topic}. Try a new topic with `/lesson <topic>`! 📚"
                 
-                # Generate lesson using LLM with RAG context
                 from .llm import llm_service
                 if not llm_service._initialized:
                     llm_service.initialize()
@@ -234,7 +229,6 @@ What would you like to learn about first? 🚀
                     stream=True
                 )
                 
-                # Handle streaming response
                 lesson_content = ""
                 for chunk in response:
                     if chunk.choices[0].delta.content:
@@ -251,7 +245,7 @@ What would you like to learn about first? 🚀
                 return f"📚 *{current_lesson.topic.title()} - Part {current_lesson.lesson_step}*\n\n{formatted_lesson}\n\n_Type `/next` to continue, /quiz for a quiz related to this topic or `/lesson <topic>` for something new!_"
             
             else:
-                # Use original LLM approach for non-RAG lessons
+                # Use fallback LLM approach for non-RAG lessons
                 follow_up_topic = f"{current_lesson.topic} - Advanced Concepts"
                 lesson_content = generate_lesson(follow_up_topic, user.age, user.name)
                 update_progress(db, current_lesson, lesson_step=current_lesson.lesson_step + 1, lesson_content=lesson_content)
@@ -293,13 +287,11 @@ What would you like to learn about first? 🚀
     def _generate_rag_lesson(self, db: Session, user: User, topic: str, retrieved_chunks: List[Dict], chunk_id: str) -> str:
         """Generate a lesson using RAG-retrieved content."""
         try:
-            # Create prompt for LLM using RAG content
             from .rag import rag_service
             system_prompt, user_prompt = rag_service.create_rag_lesson_prompt(
                 topic, retrieved_chunks, user.age, user.name
             )
             
-            # Generate lesson using LLM with RAG context
             from .llm import llm_service
             if not llm_service._initialized:
                 llm_service.initialize()
@@ -316,7 +308,6 @@ What would you like to learn about first? 🚀
                 stream=True
             )
             
-            # Handle streaming response
             lesson_content = ""
             for chunk in response:
                 if chunk.choices[0].delta.content:
@@ -324,7 +315,6 @@ What would you like to learn about first? 🚀
             
             lesson_content = lesson_content.strip()
             
-            # Create progress with RAG lesson flag
             create_progress(db, user.id, topic, lesson_content, 
                           is_rag_lesson=True, chunk_id=chunk_id)
             
@@ -360,11 +350,9 @@ What would you like to learn about first? 🚀
         Returns (success, retrieved_chunks, chunk_id) where success indicates high confidence retrieval.
         """
         try:
-            # Initialize RAG if not already done
             from .rag import initialize_rag
             initialize_rag()
             
-            # Retrieve relevant chunks
             from .rag import rag_service
             retrieved_chunks = rag_service.retrieve_relevant_chunks(topic, limit=5)
 
@@ -379,7 +367,6 @@ What would you like to learn about first? 🚀
                 logger.info(f"Low confidence RAG retrieval for topic '{topic}' - scores: {[c['similarity_score'] for c in retrieved_chunks]}")
                 return False, retrieved_chunks, None
             
-            # High confidence retrieval
             chunk_id = retrieved_chunks[0]['chunk_id']
             logger.info(f"High confidence RAG retrieval for topic '{topic}' - best score: {retrieved_chunks[0]['similarity_score']:.3f}")
             return True, retrieved_chunks, chunk_id
@@ -392,7 +379,6 @@ What would you like to learn about first? 🚀
     def _handle_quiz_command(self, db: Session, user: User) -> str:
         """Handle /quiz command to create a quiz from current lesson"""
         try:
-            # Get current lesson to determine topic
             current_lesson = get_current_lesson(db, user.id)
             if not current_lesson:
                 return "You don't have any lessons in progress. Start a lesson with `/lesson <topic>` first! 📚"
@@ -400,7 +386,7 @@ What would you like to learn about first? 🚀
             quiz_text, quiz_id = create_quiz_from_lesson(db, user.id, current_lesson.topic, user.age, user.name)
             
             if quiz_id == 0:
-                return quiz_text  # Error message
+                return quiz_text
             
             logger.info(f"Created quiz for user {user.phone_number}")
             return quiz_text
@@ -424,7 +410,6 @@ What would you like to learn about first? 🚀
             if not current_quiz:
                 return "You don't have any active quiz. Start a lesson and use `/quiz` to create one! 🧩"
             
-            # Check answers and provide feedback
             feedback = check_quiz_answers(db, user.id, message)
             
             logger.info(f"Processed quiz answers for user {user.phone_number}")

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Test script to debug quiz functionality after multiple lesson parts
 """
@@ -17,7 +16,6 @@ def test_quiz_after_multiple_parts():
     print("=" * 60)
     
     try:
-        # Initialize services
         print("1. Creating database tables...")
         create_tables()
         print("Database tables created")
@@ -27,15 +25,12 @@ def test_quiz_after_multiple_parts():
         initialize_llm()
         print("Services initialized\n")
         
-        # Get database session
         db = next(get_db())
         
-        # Create a test user
         test_phone = "+1234567890"
         user = get_user_by_phone(db, test_phone)
         if not user:
             user = create_user(db, test_phone)
-            # Set up user profile
             user.name = "Test Student"
             user.age = 10
             user.country = "Test Country"

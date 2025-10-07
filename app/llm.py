@@ -1,6 +1,5 @@
 import os
 import logging
-from typing import Optional, Dict, Any
 from cerebras.cloud.sdk import Cerebras
 from dotenv import load_dotenv
 
@@ -45,7 +44,6 @@ class LLMService:
                 stream=True
             )
             
-            # Handle streaming response
             response_content = ""
             for chunk in test_response:
                 if chunk.choices[0].delta.content:
@@ -86,7 +84,6 @@ class LLMService:
                 stream=True
             )
             
-            # Handle streaming response
             lesson_content = ""
             for chunk in response:
                 if chunk.choices[0].delta.content:

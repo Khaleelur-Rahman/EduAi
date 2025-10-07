@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Quick script to build RAG database when adding new PDFs
 """

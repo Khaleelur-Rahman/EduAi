@@ -24,7 +24,6 @@ class QuizGenerator:
         if not self.llm_service._initialized:
             self.llm_service.initialize()
         
-        # Age-appropriate quiz style
         if age_group <= 8:
             style_guide = "Use very simple questions with 3 options each. Focus on basic facts and fun elements."
         elif age_group <= 10:
@@ -82,7 +81,6 @@ Make sure the questions test understanding of the key concepts in this content."
                 stream=True
             )
             
-            # Handle streaming response
             quiz_json = ""
             for chunk in response:
                 if chunk.choices[0].delta.content:
@@ -90,10 +88,8 @@ Make sure the questions test understanding of the key concepts in this content."
             
             quiz_json = quiz_json.strip()
             
-            # Clean up the response to extract JSON
             quiz_json = self._extract_json_from_response(quiz_json)
             
-            # Parse and validate the quiz
             questions = json.loads(quiz_json)
             
             # Validate quiz structure
@@ -110,12 +106,10 @@ Make sure the questions test understanding of the key concepts in this content."
             
         except Exception as e:
             logger.error(f"Failed to generate quiz: {str(e)}")
-            # Return fallback quiz
             return self._get_fallback_quiz(topic, age_group)
     
     def _extract_json_from_response(self, response: str) -> str:
         """Extract JSON from LLM response, handling common formatting issues"""
-        # Remove markdown code blocks
         response = re.sub(r'```json\s*', '', response)
         response = re.sub(r'```\s*', '', response)
         
@@ -226,14 +220,12 @@ Make sure the questions test understanding of the key concepts in this content."
             logger.error(f"Error checking answers: {str(e)}")
             return 0, "Sorry, I had trouble checking your answers. Please try again!"
 
-# Global quiz generator instance
 quiz_generator = QuizGenerator()
 
 def create_quiz_from_lesson(db: Session, user_id: int, topic: str, age_group: int, 
                            user_name: str = "") -> Tuple[str, int]:
     """Create a quiz based on the current lesson"""
     try:
-        # Get current lesson
         current_lesson = get_current_lesson(db, user_id)
         if not current_lesson:
             return "You don't have any lessons in progress. Start a lesson with `/lesson <topic>` first! 📚", 0
@@ -255,18 +247,14 @@ def create_quiz_from_lesson(db: Session, user_id: int, topic: str, age_group: in
                 break
         
         if not target_chunk:
-            # Use the first chunk if specific chunk not found
             target_chunk = chunks[0]
         
-        # Generate quiz questions from the actual lesson content sent to WhatsApp
-        # This ensures questions align with what the student actually learned
         questions = quiz_generator.generate_quiz_from_chunk(
             topic, current_lesson.lesson_content, age_group, user_name
         )
 
         logger.info(f"current lesson: {current_lesson}")
         
-        # Store quiz in database
         quiz = create_quiz_progress(
             db=db,
             user_id=user_id,
@@ -277,7 +265,6 @@ def create_quiz_from_lesson(db: Session, user_id: int, topic: str, age_group: in
             questions=json.dumps(questions)
         )
         
-        # Format quiz for display
         quiz_text = quiz_generator.format_quiz_for_whatsapp(questions, topic, current_lesson.lesson_step)
         
         logger.info(f"Created quiz for user {user_id} on topic {topic}")
@@ -290,18 +277,14 @@ def create_quiz_from_lesson(db: Session, user_id: int, topic: str, age_group: in
 def check_quiz_answers(db: Session, user_id: int, user_answers: str) -> str:
     """Check quiz answers and provide feedback"""
     try:
-        # Get current quiz
         current_quiz = get_current_quiz(db, user_id)
         if not current_quiz:
             return "You don't have any active quiz. Start a lesson and use `/quiz` to create one! 🧩"
         
-        # Parse questions from database
         questions = json.loads(current_quiz.questions)
         
-        # Check answers
         correct_count, feedback = quiz_generator.check_answers(questions, user_answers)
         
-        # Update quiz progress
         update_quiz_progress(
             db=db,
             quiz=current_quiz,

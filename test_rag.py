@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Test and Demo script for RAG-powered science lessons
 """
@@ -39,7 +38,6 @@ def test_rag_system():
             print("-" * 50)
             
             try:
-                # Test retrieval
                 chunks = rag_service.retrieve_relevant_chunks(topic, age)
                 print(f"Retrieved {len(chunks)} relevant chunks:")
                 
@@ -117,7 +115,6 @@ def demo_rag_lessons():
     print("=" * 60)
     
     try:
-        # Initialize both RAG and LLM services
         print("Initializing services...")
         initialize_rag()
         initialize_llm()
@@ -149,7 +146,6 @@ def demo_rag_lessons():
             print(f"Demo {i}: {demo['description']}")
             print("-" * 50)
             
-            # Get RAG lesson
             system_prompt, user_prompt, chunk_id = get_rag_lesson(
                 demo['topic'], demo['age'], demo['name']
             )
@@ -159,7 +155,6 @@ def demo_rag_lessons():
             print(f"Chunk ID: {chunk_id}")
             print()
             
-            # Generate actual lesson
             try:
                 response = llm_service.client.chat.completions.create(
                     model=llm_service.model_name,
@@ -177,7 +172,6 @@ def demo_rag_lessons():
                 print(lesson_content)
                 print()
                 
-                # Show retrieved context
                 chunks = rag_service.retrieve_relevant_chunks(demo['topic'], demo['age'])
                 print("Retrieved Context:")
                 for j, chunk in enumerate(chunks[:2], 1):

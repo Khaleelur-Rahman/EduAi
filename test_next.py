@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Test script for /next functionality
 """
@@ -17,7 +16,6 @@ def test_next_functionality():
     print("=" * 60)
     
     try:
-        # Initialize services
         print("1. Creating database tables...")
         create_tables()
         print("Database tables created")
@@ -27,15 +25,12 @@ def test_next_functionality():
         initialize_llm()
         print("Services initialized\n")
         
-        # Get database session
         db = next(get_db())
         
-        # Create a test user
         test_phone = "+1234567890"
         user = get_user_by_phone(db, test_phone)
         if not user:
             user = create_user(db, test_phone)
-            # Set up user profile
             user.name = "Test Student"
             user.age = 10
             user.country = "Test Country"
@@ -98,7 +93,6 @@ def test_next_functionality():
             print("No lesson found after second /next!")
         
         print("\n4. Testing /next without active lesson...")
-        # Complete the current lesson to test error handling
         if final_lesson:
             final_lesson.completed = True
             db.commit()

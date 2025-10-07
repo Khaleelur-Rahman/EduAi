@@ -260,11 +260,19 @@ What would you like to learn about first? 🚀
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
                     ],
-                    max_tokens=300,
-                    temperature=0.7
+                    max_completion_tokens=300,
+                    temperature=0.7,
+                    top_p=0.8,
+                    stream=True
                 )
                 
-                lesson_content = response.choices[0].message.content.strip()
+                # Handle streaming response
+                lesson_content = ""
+                for chunk in response:
+                    if chunk.choices[0].delta.content:
+                        lesson_content += chunk.choices[0].delta.content
+                
+                lesson_content = lesson_content.strip()
                 update_progress(db, current_lesson, 
                               lesson_content=lesson_content,
                               lesson_step=current_lesson.lesson_step + 1,
@@ -361,11 +369,19 @@ What would you like to learn about first? 🚀
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                max_tokens=300,
-                temperature=0.7
+                max_completion_tokens=300,
+                temperature=0.7,
+                top_p=0.8,
+                stream=True
             )
             
-            lesson_content = response.choices[0].message.content.strip()
+            # Handle streaming response
+            lesson_content = ""
+            for chunk in response:
+                if chunk.choices[0].delta.content:
+                    lesson_content += chunk.choices[0].delta.content
+            
+            lesson_content = lesson_content.strip()
             
             # Create or update progress
             if current_lesson and current_lesson.is_rag_lesson and current_chunk_id:

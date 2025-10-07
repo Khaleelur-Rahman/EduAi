@@ -76,11 +76,19 @@ Make sure the questions test understanding of the key concepts in this content."
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                max_tokens=800,
-                temperature=0.7
+                max_completion_tokens=800,
+                temperature=0.7,
+                top_p=0.8,
+                stream=True
             )
             
-            quiz_json = response.choices[0].message.content.strip()
+            # Handle streaming response
+            quiz_json = ""
+            for chunk in response:
+                if chunk.choices[0].delta.content:
+                    quiz_json += chunk.choices[0].delta.content
+            
+            quiz_json = quiz_json.strip()
             
             # Clean up the response to extract JSON
             quiz_json = self._extract_json_from_response(quiz_json)

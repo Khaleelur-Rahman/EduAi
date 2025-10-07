@@ -1,7 +1,7 @@
 import os
 import logging
 from typing import Optional, Dict, Any
-from openai import OpenAI
+from cerebras.cloud.sdk import Cerebras
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -12,11 +12,12 @@ logger = logging.getLogger(__name__)
 class LLMService:
     
     def __init__(self):
-        self.model_name = "deepseek/deepseek-chat-v3.1"
-        self.api_key = os.getenv("OPENROUTER_API_KEY")
+        self.model_name = "qwen-3-235b-a22b-instruct-2507"  # Cerebras thinking model
+        self.api_key = os.getenv("CEREBRAS_API_KEY")
         self.client = None
         self.max_tokens = 300
         self.temperature = 0.7
+        self.top_p = 0.8
         self._initialized = False
     
     def initialize(self):
@@ -24,49 +25,54 @@ class LLMService:
             return
         
         if not self.api_key:
-            logger.error("OPENROUTER_API_KEY not found in environment variables")
-            raise Exception("OpenRouter API key is required. Please set OPENROUTER_API_KEY environment variable.")
+            logger.error("CEREBRAS_API_KEY not found in environment variables")
+            raise Exception("Cerebras API key is required. Please set CEREBRAS_API_KEY environment variable.")
         
         try:
-            logger.info(f"Initializing OpenRouter client for model: {self.model_name}")
+            logger.info(f"Initializing Cerebras client for model: {self.model_name}")
             
-            self.client = OpenAI(
-                base_url="https://openrouter.ai/api/v1",
-                api_key=self.api_key,
-            )
+            self.client = Cerebras(api_key=self.api_key)
             
-            logger.info("Testing OpenRouter connection...")
+            logger.info("Testing Cerebras connection...")
             test_response = self.client.chat.completions.create(
                 model=self.model_name,
                 messages=[
                     {"role": "user", "content": "Hello, can you respond with just 'OK'?"}
                 ],
-                max_tokens=10,
-                temperature=0.1
+                max_completion_tokens=10,
+                temperature=0.1,
+                top_p=0.8,
+                stream=True
             )
             
-            if test_response.choices[0].message.content:
-                logger.info(f"OpenRouter connection successful: {test_response.choices[0].message.content.strip()}")
+            # Handle streaming response
+            response_content = ""
+            for chunk in test_response:
+                if chunk.choices[0].delta.content:
+                    response_content += chunk.choices[0].delta.content
+            
+            if response_content.strip():
+                logger.info(f"Cerebras connection successful: {response_content.strip()}")
                 self._initialized = True
             else:
-                raise Exception("No response from OpenRouter API")
+                raise Exception("No response from Cerebras API")
                 
         except Exception as e:
-            logger.error(f"Failed to initialize OpenRouter client: {str(e)}")
-            raise Exception(f"OpenRouter initialization failed: {str(e)}")
+            logger.error(f"Failed to initialize Cerebras client: {str(e)}")
+            raise Exception(f"Cerebras initialization failed: {str(e)}")
     
     def generate_lesson(self, topic: str, age_group: int, user_name: str = "") -> str:
         if not self._initialized:
             self.initialize()
         
         if not self._initialized or self.client is None:
-            logger.info(f"OpenRouter not available, using fallback lesson for topic: {topic}")
+            logger.info(f"Cerebras not available, using fallback lesson for topic: {topic}")
             return self._get_fallback_lesson(topic, age_group)
         
         system_prompt, user_prompt = self._create_lesson_prompt(topic, age_group, user_name)
         
         try:
-            logger.info(f"Generating lesson with DeepSeek for topic: {topic}, age: {age_group}")
+            logger.info(f"Generating lesson with Cerebras for topic: {topic}, age: {age_group}")
             
             response = self.client.chat.completions.create(
                 model=self.model_name,
@@ -74,13 +80,22 @@ class LLMService:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                max_tokens=self.max_tokens,
-                temperature=self.temperature
+                max_completion_tokens=self.max_tokens,
+                temperature=self.temperature,
+                top_p=self.top_p,
+                stream=True
             )
             
-            if response.choices and response.choices[0].message.content:
-                lesson_content = response.choices[0].message.content.strip()
-                logger.info(f"DeepSeek response received: {len(lesson_content)} characters")
+            # Handle streaming response
+            lesson_content = ""
+            for chunk in response:
+                if chunk.choices[0].delta.content:
+                    lesson_content += chunk.choices[0].delta.content
+            
+            lesson_content = lesson_content.strip()
+            
+            if lesson_content:
+                logger.info(f"Cerebras response received: {len(lesson_content)} characters")
                 
                 if len(lesson_content) < 50:
                     raise Exception("Generated content too short")
@@ -88,10 +103,10 @@ class LLMService:
                 logger.info(f"Successfully generated lesson for topic: {topic}")
                 return lesson_content
             else:
-                raise Exception("No content received from DeepSeek")
+                raise Exception("No content received from Cerebras")
             
         except Exception as e:
-            logger.error(f"Failed to generate lesson with DeepSeek: {str(e)}")
+            logger.error(f"Failed to generate lesson with Cerebras: {str(e)}")
             logger.info(f"Falling back to predefined lesson for topic: {topic}")
             return self._get_fallback_lesson(topic, age_group)
     

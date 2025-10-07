@@ -35,11 +35,11 @@ def build_rag_database():
             md_files = [f for f in os.listdir(data_dir) if f.endswith('.md')]
             pdf_files = [f for f in os.listdir(data_dir) if f.endswith('.pdf')]
             
-            print(f"  📄 Markdown files: {len(md_files)}")
+            print(f"  Markdown files: {len(md_files)}")
             for f in md_files:
                 print(f"    - {f}")
             
-            print(f"  📚 PDF files: {len(pdf_files)}")
+            print(f"  PDF files: {len(pdf_files)}")
             for f in pdf_files:
                 print(f"    - {f}")
         

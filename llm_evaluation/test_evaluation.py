@@ -11,18 +11,18 @@ import json
 
 def check_environment():
     """Check if the environment is properly set up"""
-    print("🔍 Checking Environment Setup")
+    print("Checking Environment Setup")
     print("=" * 30)
     
     # Check API keys
     openrouter_key = os.getenv("OPENROUTER_API_KEY")
     cerebras_key = os.getenv("CEREBRAS_API_KEY")
     
-    print(f"OpenRouter API Key: {'✅ Found' if openrouter_key else '❌ Missing'}")
-    print(f"Cerebras API Key: {'✅ Found' if cerebras_key else '❌ Missing'}")
+    print(f"OpenRouter API Key: {'Found' if openrouter_key else 'Missing'}")
+    print(f"Cerebras API Key: {'Found' if cerebras_key else 'Missing'}")
     
     if not openrouter_key and not cerebras_key:
-        print("\n❌ No API keys found!")
+        print("\nNo API keys found!")
         print("Please create a .env file with:")
         print("OPENROUTER_API_KEY=your_key_here")
         print("CEREBRAS_API_KEY=your_key_here")
@@ -35,11 +35,11 @@ def check_environment():
         "evaluation_requirements.txt"
     ]
     
-    print(f"\n📁 Checking Required Files:")
+    print(f"\nChecking Required Files:")
     all_files_exist = True
     for file in required_files:
         exists = os.path.exists(file)
-        print(f"  {file}: {'✅ Found' if exists else '❌ Missing'}")
+        print(f"  {file}: {'Found' if exists else 'Missing'}")
         if not exists:
             all_files_exist = False
     
@@ -47,7 +47,7 @@ def check_environment():
 
 def check_dependencies():
     """Test if all required dependencies are installed"""
-    print("\n📦 Testing Dependencies")
+    print("\nTesting Dependencies")
     print("=" * 25)
     
     required_packages = [
@@ -62,13 +62,13 @@ def check_dependencies():
     for package in required_packages:
         try:
             __import__(package)
-            print(f"  {package}: ✅ Installed")
+            print(f"  {package}: Installed")
         except ImportError:
-            print(f"  {package}: ❌ Missing")
+            print(f"  {package}: Missing")
             missing_packages.append(package)
     
     if missing_packages:
-        print(f"\n❌ Missing packages: {', '.join(missing_packages)}")
+        print(f"\nMissing packages: {', '.join(missing_packages)}")
         print("Install them with: pip install -r evaluation_requirements.txt")
         return False
     
@@ -76,7 +76,7 @@ def check_dependencies():
 
 def check_config():
     """Check if the configuration file is valid"""
-    print("\n⚙️ Checking Configuration")
+    print("\nChecking Configuration")
     print("=" * 25)
     
     try:
@@ -85,7 +85,7 @@ def check_config():
         
         # Check structure
         if "evaluation_config" not in config:
-            print("❌ Invalid config structure: missing 'evaluation_config'")
+            print("Invalid config structure: missing 'evaluation_config'")
             return False
         
         eval_config = config["evaluation_config"]
@@ -94,13 +94,13 @@ def check_config():
         required_sections = ["lesson_prompts", "models"]
         for section in required_sections:
             if section not in eval_config:
-                print(f"❌ Missing config section: {section}")
+                print(f"Missing config section: {section}")
                 return False
         
         # Check models
         models = eval_config["models"]
         if "openrouter" not in models and "cerebras" not in models:
-            print("❌ No model providers configured")
+            print("No model providers configured")
             return False
         
         # Count available models
@@ -123,13 +123,13 @@ def check_config():
         return True
         
     except FileNotFoundError:
-        print("❌ evaluation_config.json not found")
+        print("evaluation_config.json not found")
         return False
     except json.JSONDecodeError as e:
-        print(f"❌ Invalid JSON in config file: {e}")
+        print(f"Invalid JSON in config file: {e}")
         return False
     except Exception as e:
-        print(f"❌ Error checking config: {e}")
+        print(f"Error checking config: {e}")
         return False
 
 def check_available_models():
@@ -151,7 +151,7 @@ def check_available_models():
             openrouter_models = models["openrouter"]
             print(f"OpenRouter models ({len(openrouter_models)}):")
             for model in openrouter_models:
-                print(f"  ✅ {model['name']} - {model['model_id']}")
+                print(f"{model['name']} - {model['model_id']}")
                 available_count += 1
         
         # Check Cerebras models
@@ -159,24 +159,24 @@ def check_available_models():
             cerebras_models = models["cerebras"]
             print(f"\nCerebras models ({len(cerebras_models)}):")
             for model in cerebras_models:
-                print(f"  ✅ {model['name']} - {model['model_id']}")
+                print(f"{model['name']} - {model['model_id']}")
                 available_count += 1
         
         print(f"\nTotal available models: {available_count}")
         
         if available_count == 0:
-            print("❌ No models available! Check your API keys.")
+            print("No models available! Check your API keys.")
             return False
         
         return True
         
     except Exception as e:
-        print(f"❌ Error checking models: {e}")
+        print(f"Error checking models: {e}")
         return False
 
 async def test_single_model():
     """Test a single model to ensure the framework works"""
-    print("\n🧪 Testing Single Model")
+    print("\nTesting Single Model")
     print("=" * 25)
     
     try:
@@ -187,7 +187,7 @@ async def test_single_model():
         evaluator = LLMEvaluator()
         
         if not evaluator.models:
-            print("❌ No models available for testing")
+            print("No models available for testing")
             return False
         
         # Test with the first available model
@@ -200,18 +200,18 @@ async def test_single_model():
         # Generate response
         response, latency = await evaluator.generate_response(test_model, test_prompt)
         
-        print(f"✅ Response generated successfully!")
+        print(f"   Response generated successfully!")
         print(f"   Latency: {latency:.2f} seconds")
         print(f"   Response length: {len(response)} characters")
         print(f"   Response preview: {response[:100]}...")
         
         # Test quiz generation
-        print(f"\n🧩 Testing Quiz Generation")
+        print(f"\n Testing Quiz Generation")
         quiz_response, quiz_latency = await evaluator.generate_quiz_from_lesson(
             test_model, response, "photosynthesis"
         )
         
-        print(f"✅ Quiz generated successfully!")
+        print(f"   Quiz generated successfully!")
         print(f"   Latency: {quiz_latency:.2f} seconds")
         print(f"   Quiz length: {len(quiz_response)} characters")
         print(f"   Quiz preview: {quiz_response[:100]}...")
@@ -219,14 +219,14 @@ async def test_single_model():
         return True
         
     except Exception as e:
-        print(f"❌ Test failed: {str(e)}")
+        print(f"Test failed: {str(e)}")
         import traceback
         traceback.print_exc()
         return False
 
 async def test_evaluation_scoring():
     """Test the evaluation scoring system"""
-    print("\n📊 Testing Evaluation Scoring")
+    print("\nTesting Evaluation Scoring")
     print("=" * 30)
     
     try:
@@ -235,7 +235,7 @@ async def test_evaluation_scoring():
         evaluator = LLMEvaluator()
         
         if not evaluator.models:
-            print("❌ No models available for testing")
+            print("No models available for testing")
             return False
         
         # Use first model as evaluator
@@ -249,7 +249,7 @@ async def test_evaluation_scoring():
         # Test evaluation
         scores = await evaluator.evaluate_response(test_response, test_prompt, evaluator_model)
         
-        print(f"✅ Evaluation completed!")
+        print(f"   Evaluation completed!")
         print(f"   Factual Accuracy: {scores.get('factual_accuracy', 'N/A')}/100")
         print(f"   Clarity: {scores.get('clarity', 'N/A')}/100")
         print(f"   Relevance: {scores.get('relevance', 'N/A')}/100")
@@ -257,60 +257,60 @@ async def test_evaluation_scoring():
         # Check if scores are in valid range
         for key, score in scores.items():
             if not (0 <= score <= 100):
-                print(f"❌ Invalid score for {key}: {score} (should be 0-100)")
+                print(f"Invalid score for {key}: {score} (should be 0-100)")
                 return False
         
-        print("✅ All scores are in valid range (0-100)")
+        print("All scores are in valid range (0-100)")
         return True
         
     except Exception as e:
-        print(f"❌ Evaluation test failed: {str(e)}")
+        print(f"Evaluation test failed: {str(e)}")
         import traceback
         traceback.print_exc()
         return False
 
 async def main():
     """Main test function"""
-    print("🚀 LLM Evaluation Framework Test")
+    print("LLM Evaluation Framework Test")
     print("=" * 35)
     
     # Check environment
     if not check_environment():
-        print("\n❌ Environment check failed!")
+        print("\nEnvironment check failed!")
         return
     
     # Check dependencies
     if not check_dependencies():
-        print("\n❌ Dependency check failed!")
+        print("\nDependency check failed!")
         return
     
     # Check configuration
     if not check_config():
-        print("\n❌ Configuration check failed!")
+        print("\nConfiguration check failed!")
         return
     
     # Check available models
     if not check_available_models():
-        print("\n❌ Model availability check failed!")
+        print("\nModel availability check failed!")
         return
     
     # Test single model
     if not await test_single_model():
-        print("\n❌ Model test failed!")
+        print("\nModel test failed!")
         return
     
     # Test evaluation scoring
     if not await test_evaluation_scoring():
-        print("\n❌ Evaluation scoring test failed!")
+        print("\nEvaluation scoring test failed!")
         return
     
     print("\n✅ All tests passed!")
-    print("\n🎉 The evaluation framework is ready to use!")
+    print("\nThe evaluation framework is ready to use!")
     print("\nNext steps:")
     print("1. Run: python evaluate_models.py")
     print("2. Analyze results: python analyze_results.py")
     print("3. Check generated CSV files and visualizations")
-    print("\n📊 Expected output files:")
+    print("\nExpected output files:")
     print("  • model_eval_raw.csv")
     print("  • model_eval_scores.csv")
     print("  • model_eval_summary.csv")

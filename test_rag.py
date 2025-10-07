@@ -11,17 +11,17 @@ from app.rag import initialize_rag, get_rag_lesson, rag_service
 from app.llm import initialize_llm, llm_service
 
 def test_rag_system():
-    print("🧪 Testing RAG System for Science Education")
+    print("Testing RAG System for Science Education")
     print("=" * 60)
     
     try:
         print("1. Initializing RAG service...")
         initialize_rag()
-        print("✅ RAG service initialized successfully")
+        print("RAG service initialized successfully")
         
         print("2. Initializing LLM service...")
         initialize_llm()
-        print("✅ LLM service initialized successfully\n")
+        print("LLM service initialized successfully\n")
         
         # Test topics for different age groups
         test_cases = [
@@ -41,7 +41,7 @@ def test_rag_system():
             try:
                 # Test retrieval
                 chunks = rag_service.retrieve_relevant_chunks(topic, age)
-                print(f"📚 Retrieved {len(chunks)} relevant chunks:")
+                print(f"Retrieved {len(chunks)} relevant chunks:")
                 
                 for j, chunk in enumerate(chunks[:2]):  # Show first 2 chunks
                     print(f"  Chunk {j+1}: {chunk['chunk_id']}")
@@ -52,7 +52,7 @@ def test_rag_system():
                 # Test lesson generation
                 system_prompt, user_prompt, chunk_id = get_rag_lesson(topic, age, name)
                 
-                print(f"🔬 Generated lesson prompt (chunk_id: {chunk_id})")
+                print(f"Generated lesson prompt (chunk_id: {chunk_id})")
                 
                 # Generate actual lesson
                 try:
@@ -68,21 +68,21 @@ def test_rag_system():
                     
                     lesson_content = response.choices[0].message.content.strip()
                     
-                    print("🔬 Generated Lesson:")
+                    print("Generated Lesson:")
                     print(lesson_content)
                     print()
                     
                 except Exception as e:
-                    print(f"❌ Error generating lesson: {e}")
+                    print(f"Error generating lesson: {e}")
                     print()
                 
             except Exception as e:
-                print(f"❌ Error testing {topic}: {e}")
+                print(f"Error testing {topic}: {e}")
             
             print("=" * 60 + "\n")
         
         # Test next chunk functionality
-        print("🔄 Testing next chunk functionality...")
+        print("Testing next chunk functionality...")
         try:
             # Get a topic and its first chunk
             topic = "plants"
@@ -102,18 +102,18 @@ def test_rag_system():
                 print("No chunks found for testing")
                 
         except Exception as e:
-            print(f"❌ Error testing next chunk: {e}")
+            print(f"Error testing next chunk: {e}")
         
-        print("\n✅ RAG system test completed!")
+        print("\nRAG system test completed!")
         
     except Exception as e:
-        print(f"❌ Failed to initialize RAG system: {e}")
+        print(f"Failed to initialize RAG system: {e}")
         print("Make sure you have installed all required dependencies:")
         print("pip install sentence-transformers chromadb markdown")
 
 def demo_rag_lessons():
     """Demo function showing actual lesson generation with LLM"""
-    print("🎓 RAG-Powered Science Education Demo")
+    print("RAG-Powered Science Education Demo")
     print("=" * 60)
     
     try:
@@ -121,7 +121,7 @@ def demo_rag_lessons():
         print("Initializing services...")
         initialize_rag()
         initialize_llm()
-        print("✅ Services initialized!\n")
+        print("Services initialized!\n")
         
         # Demo scenarios - Chemistry topics from Chemistry2e textbook
         demos = [
@@ -154,9 +154,9 @@ def demo_rag_lessons():
                 demo['topic'], demo['age'], demo['name']
             )
             
-            print(f"📚 Topic: {demo['topic']}")
-            print(f"👤 Student: {demo['name']} (age {demo['age']})")
-            print(f"🔗 Chunk ID: {chunk_id}")
+            print(f"Topic: {demo['topic']}")
+            print(f"Student: {demo['name']} (age {demo['age']})")
+            print(f"Chunk ID: {chunk_id}")
             print()
             
             # Generate actual lesson
@@ -173,31 +173,27 @@ def demo_rag_lessons():
                 
                 lesson_content = response.choices[0].message.content.strip()
                 
-                print("🔬 Generated Lesson:")
+                print("Generated Lesson:")
                 print(lesson_content)
                 print()
                 
                 # Show retrieved context
                 chunks = rag_service.retrieve_relevant_chunks(demo['topic'], demo['age'])
-                print("📖 Retrieved Context:")
+                print("Retrieved Context:")
                 for j, chunk in enumerate(chunks[:2], 1):
                     print(f"  {j}. {chunk['content'][:100]}...")
                     print(f"     Similarity: {chunk['similarity_score']:.3f}")
                 print()
                 
             except Exception as e:
-                print(f"❌ Error generating lesson: {e}")
+                print(f"Error generating lesson: {e}")
             
             print("=" * 60 + "\n")
         
-        print("🎉 Demo completed! The RAG system successfully:")
-        print("✅ Retrieved relevant educational content")
-        print("✅ Generated age-appropriate lessons")
-        print("✅ Provided accurate, grounded information")
-        print("✅ Created engaging, educational content")
+        print("Demo completed! The RAG system successfully:")
         
     except Exception as e:
-        print(f"❌ Demo failed: {e}")
+        print(f"Demo failed: {e}")
         print("Make sure all dependencies are installed and services are running.")
 
 if __name__ == "__main__":

@@ -27,7 +27,7 @@ try:
     DOTENV_AVAILABLE = True
 except ImportError:
     DOTENV_AVAILABLE = False
-    print("⚠️ python-dotenv not available, will check environment variables directly")
+    print("python-dotenv not available, will check environment variables directly")
 
 # Configure logging
 logging.basicConfig(
@@ -81,18 +81,18 @@ class LLMEvaluator:
         
     def check_environment(self) -> bool:
         """Check if the environment is properly set up"""
-        print("🔍 Checking Environment Setup")
+        print("Checking Environment Setup")
         print("=" * 30)
         
         # Check API keys
         openrouter_key = os.getenv("OPENROUTER_API_KEY")
         cerebras_key = os.getenv("CEREBRAS_API_KEY")
         
-        print(f"OpenRouter API Key: {'✅ Found' if openrouter_key else '❌ Missing'}")
-        print(f"Cerebras API Key: {'✅ Found' if cerebras_key else '❌ Missing'}")
+        print(f"OpenRouter API Key: {'Found' if openrouter_key else 'Missing'}")
+        print(f"Cerebras API Key: {'Found' if cerebras_key else 'Missing'}")
         
         if not openrouter_key and not cerebras_key:
-            print("\n❌ No API keys found!")
+            print("\nNo API keys found!")
             print("Please set environment variables:")
             print("export OPENROUTER_API_KEY=your_key_here")
             print("export CEREBRAS_API_KEY=your_key_here")
@@ -109,11 +109,11 @@ class LLMEvaluator:
                 missing_packages.append(package)
         
         if missing_packages:
-            print(f"\n❌ Missing packages: {', '.join(missing_packages)}")
+            print(f"\nMissing packages: {', '.join(missing_packages)}")
             print("Install them with: pip install -r evaluation_requirements.txt")
             return False
         
-        print("✅ Environment check passed!")
+        print("Environment check passed!")
         return True
         
     def _setup_models(self) -> List[ModelConfig]:
@@ -168,9 +168,9 @@ class LLMEvaluator:
             api_key = os.getenv(model.api_key_env)
             if api_key:
                 available_models.append(model)
-                logger.info(f"✅ {model.name} ({model.provider}) - API key found")
+                logger.info(f"{model.name} ({model.provider}) - API key found")
             else:
-                logger.warning(f"❌ {model.name} ({model.provider}) - No API key found")
+                logger.warning(f"{model.name} ({model.provider}) - No API key found")
         
         return available_models
     
@@ -357,7 +357,7 @@ Return ONLY a JSON object with these exact keys:
     
     async def run_evaluation(self):
         """Run the complete evaluation process"""
-        logger.info("🚀 Starting LLM Evaluation Framework")
+        logger.info("Starting LLM Evaluation Framework")
         logger.info(f"Testing {len(self.models)} models")
         
         evaluator_model = self.evaluator_model_deepseek
@@ -371,7 +371,7 @@ Return ONLY a JSON object with these exact keys:
         current_test = 0
         
         for model in self.models:
-            logger.info(f"\n📊 Testing {model.name} ({model.provider})")
+            logger.info(f"\nTesting {model.name} ({model.provider})")
             
             # Test each lesson prompt
             for i, prompt in enumerate(self.lesson_prompts):
@@ -401,7 +401,7 @@ Return ONLY a JSON object with these exact keys:
                     )
                     
                     self.results.append(lesson_result)
-                    logger.info(f"    ✅ Lesson completed (latency: {lesson_latency:.2f}s, score: {lesson_result.overall_score:.1f})")
+                    logger.info(f"    Lesson completed (latency: {lesson_latency:.2f}s, score: {lesson_result.overall_score:.1f})")
                     
                     # Generate quiz based on the lesson content
                     current_test += 1
@@ -433,11 +433,11 @@ Return ONLY a JSON object with these exact keys:
                 except Exception as e:
                     logger.error(f"    ❌ Failed: {str(e)}")
         
-        logger.info(f"\n🎉 Evaluation completed! {len(self.results)} tests completed")
+        logger.info(f"\nEvaluation completed! {len(self.results)} tests completed")
     
     def save_results(self):
         """Save results to CSV files"""
-        logger.info("💾 Saving results to CSV files...")
+        logger.info("Saving results to CSV files...")
         
         # Save raw results
         raw_data = []
@@ -453,7 +453,7 @@ Return ONLY a JSON object with these exact keys:
         
         df_raw = pd.DataFrame(raw_data)
         df_raw.to_csv('model_eval_raw.csv', index=False)
-        logger.info("✅ Raw results saved to model_eval_raw.csv")
+        logger.info("Raw results saved to model_eval_raw.csv")
         
         # Save scored results
         scored_data = []
@@ -473,14 +473,14 @@ Return ONLY a JSON object with these exact keys:
         
         df_scored = pd.DataFrame(scored_data)
         df_scored.to_csv('model_eval_scores.csv', index=False)
-        logger.info("✅ Scored results saved to model_eval_scores.csv")
+        logger.info("Scored results saved to model_eval_scores.csv")
         
         # Generate summary statistics
         self.generate_summary_report(df_scored)
     
     def generate_summary_report(self, df: pd.DataFrame):
         """Generate summary statistics and visualizations"""
-        logger.info("📊 Generating summary report...")
+        logger.info("Generating summary report...")
         
         # Calculate summary statistics
         summary = df.groupby('model_name').agg({
@@ -497,14 +497,14 @@ Return ONLY a JSON object with these exact keys:
         
         # Save summary
         summary.to_csv('model_eval_summary.csv', index=False)
-        logger.info("✅ Summary statistics saved to model_eval_summary.csv")
+        logger.info("Summary statistics saved to model_eval_summary.csv")
         
         # Create visualizations
         self.create_visualizations(df)
     
     def create_visualizations(self, df: pd.DataFrame):
         """Create performance visualizations"""
-        logger.info("📈 Creating visualizations...")
+        logger.info("Creating visualizations...")
         
         # Set up the plotting style
         plt.style.use('seaborn-v0_8')
@@ -564,7 +564,7 @@ Return ONLY a JSON object with these exact keys:
         plt.savefig('model_evaluation_results.png', dpi=300, bbox_inches='tight')
         plt.close()
         
-        logger.info("✅ Visualizations saved to model_evaluation_results.png")
+        logger.info("Visualizations saved to model_evaluation_results.png")
 
 async def main():
     """Main execution function"""
@@ -572,11 +572,11 @@ async def main():
     
     # Check environment first
     if not evaluator.check_environment():
-        logger.error("❌ Environment check failed!")
+        logger.error("Environment check failed!")
         return
     
     if not evaluator.models:
-        logger.error("❌ No models available! Please check your API keys.")
+        logger.error("No models available! Please check your API keys.")
         logger.info("Required environment variables:")
         logger.info("  - OPENROUTER_API_KEY (for OpenRouter models)")
         logger.info("  - CEREBRAS_API_KEY (for Cerebras models)")
@@ -586,7 +586,7 @@ async def main():
         await evaluator.run_evaluation()
         evaluator.save_results()
         
-        logger.info("\n🎯 Evaluation Summary:")
+        logger.info("\nEvaluation Summary:")
         logger.info(f"  - Models tested: {len(evaluator.models)}")
         logger.info(f"  - Total tests: {len(evaluator.results)}")
         logger.info(f"  - Files generated:")
@@ -597,7 +597,7 @@ async def main():
         logger.info(f"    • evaluation.log")
         
     except Exception as e:
-        logger.error(f"❌ Evaluation failed: {str(e)}")
+        logger.error(f"Evaluation failed: {str(e)}")
         raise
 
 if __name__ == "__main__":

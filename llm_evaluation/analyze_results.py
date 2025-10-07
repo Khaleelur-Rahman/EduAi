@@ -14,15 +14,15 @@ def load_evaluation_results() -> pd.DataFrame:
     """Load the evaluation results from CSV"""
     try:
         df = pd.read_csv('model_eval_scores.csv')
-        print(f"✅ Loaded {len(df)} evaluation results")
+        print(f"Loaded {len(df)} evaluation results")
         return df
     except FileNotFoundError:
-        print("❌ model_eval_scores.csv not found. Please run evaluate_models.py first.")
+        print("model_eval_scores.csv not found. Please run evaluate_models.py first.")
         return None
 
 def analyze_model_performance(df: pd.DataFrame) -> Dict:
     """Analyze overall model performance"""
-    print("\n📊 Model Performance Analysis")
+    print("\nModel Performance Analysis")
     print("=" * 50)
     
     # Calculate summary statistics
@@ -41,7 +41,7 @@ def analyze_model_performance(df: pd.DataFrame) -> Dict:
     # Sort by overall score
     summary = summary.sort_values('overall_score_mean', ascending=False)
     
-    print("\n🏆 Model Rankings (by Overall Score - 0-100 scale):")
+    print("\nModel Rankings (by Overall Score - 0-100 scale):")
     for i, row in summary.iterrows():
         print(f"{i+1:2d}. {row['model_name']:30s} | Score: {row['overall_score_mean']:.1f} | Latency: {row['latency_seconds_mean']:.2f}s")
     
@@ -49,7 +49,7 @@ def analyze_model_performance(df: pd.DataFrame) -> Dict:
 
 def find_best_models(df: pd.DataFrame) -> Dict[str, str]:
     """Find the best model for different criteria"""
-    print("\n🎯 Best Models by Category")
+    print("\nBest Models by Category")
     print("=" * 30)
     
     best_models = {}
@@ -57,39 +57,39 @@ def find_best_models(df: pd.DataFrame) -> Dict[str, str]:
     # Best overall score
     best_overall = df.groupby('model_name')['overall_score'].mean().idxmax()
     best_models['overall'] = best_overall
-    print(f"🥇 Best Overall: {best_overall}")
+    print(f"Best Overall: {best_overall}")
     
     # Fastest model
     fastest = df.groupby('model_name')['latency_seconds'].mean().idxmin()
     best_models['fastest'] = fastest
-    print(f"⚡ Fastest: {fastest}")
+    print(f"Fastest: {fastest}")
     
     # Most accurate
     most_accurate = df.groupby('model_name')['factual_accuracy'].mean().idxmax()
     best_models['most_accurate'] = most_accurate
-    print(f"🎯 Most Accurate: {most_accurate}")
+    print(f"Most Accurate: {most_accurate}")
     
     # Clearest explanations
     clearest = df.groupby('model_name')['clarity'].mean().idxmax()
     best_models['clearest'] = clearest
-    print(f"💡 Clearest: {clearest}")
+    print(f"Clearest: {clearest}")
     
     # Most relevant
     most_relevant = df.groupby('model_name')['relevance'].mean().idxmax()
     best_models['most_relevant'] = most_relevant
-    print(f"🎪 Most Relevant: {most_relevant}")
+    print(f"Most Relevant: {most_relevant}")
     
     # Most efficient (score per second)
     df['efficiency'] = df['overall_score'] / df['latency_seconds']
     most_efficient = df.groupby('model_name')['efficiency'].mean().idxmax()
     best_models['most_efficient'] = most_efficient
-    print(f"⚖️ Most Efficient: {most_efficient}")
+    print(f"Most Efficient: {most_efficient}")
     
     return best_models
 
 def analyze_by_prompt_type(df: pd.DataFrame):
     """Analyze performance by prompt type (lesson vs quiz)"""
-    print("\n📚 Performance by Prompt Type")
+    print("\nPerformance by Prompt Type")
     print("=" * 35)
     
     by_type = df.groupby(['model_name', 'prompt_type']).agg({
@@ -101,12 +101,12 @@ def analyze_by_prompt_type(df: pd.DataFrame):
     score_pivot = by_type['overall_score'].unstack()
     latency_pivot = by_type['latency_seconds'].unstack()
     
-    print("\n📖 Lesson Generation Scores (0-100):")
+    print("\nLesson Generation Scores (0-100):")
     lesson_scores = score_pivot['lesson'].sort_values(ascending=False)
     for model, score in lesson_scores.items():
         print(f"  {model:30s} | {score:.1f}")
     
-    print("\n🧩 Quiz Generation Scores (0-100):")
+    print("\nQuiz Generation Scores (0-100):")
     quiz_scores = score_pivot['quiz'].sort_values(ascending=False)
     for model, score in quiz_scores.items():
         print(f"  {model:30s} | {score:.1f}")
@@ -115,12 +115,12 @@ def analyze_by_prompt_type(df: pd.DataFrame):
     best_lesson = lesson_scores.idxmax()
     best_quiz = quiz_scores.idxmax()
     
-    print(f"\n🏆 Best for Lessons: {best_lesson}")
-    print(f"🏆 Best for Quizzes: {best_quiz}")
+    print(f"\nBest for Lessons: {best_lesson}")
+    print(f"Best for Quizzes: {best_quiz}")
 
 def analyze_consistency(df: pd.DataFrame):
     """Analyze model consistency (lower std = more consistent)"""
-    print("\n📈 Model Consistency Analysis")
+    print("\nModel Consistency Analysis")
     print("=" * 35)
     
     consistency = df.groupby('model_name')['overall_score'].agg(['mean', 'std']).round(1)
@@ -135,7 +135,7 @@ def analyze_consistency(df: pd.DataFrame):
 
 def create_custom_visualizations(df: pd.DataFrame):
     """Create custom visualizations for analysis"""
-    print("\n📊 Creating custom visualizations...")
+    print("\nCreating custom visualizations...")
     
     # Set up the plotting style
     plt.style.use('seaborn-v0_8')
@@ -198,11 +198,11 @@ def create_custom_visualizations(df: pd.DataFrame):
     plt.savefig('custom_analysis_results.png', dpi=300, bbox_inches='tight')
     plt.close()
     
-    print("✅ Custom visualizations saved to custom_analysis_results.png")
+    print("Custom visualizations saved to custom_analysis_results.png")
 
 def generate_recommendations(df: pd.DataFrame, best_models: Dict[str, str]) -> List[str]:
     """Generate recommendations based on analysis"""
-    print("\n💡 Recommendations")
+    print("\nRecommendations")
     print("=" * 20)
     
     recommendations = []
@@ -211,12 +211,12 @@ def generate_recommendations(df: pd.DataFrame, best_models: Dict[str, str]) -> L
     best_overall = best_models['overall']
     fastest = best_models['fastest']
     
-    recommendations.append(f"🏆 For best overall quality: Use {best_overall}")
+    recommendations.append(f"For best overall quality: Use {best_overall}")
     recommendations.append(f"⚡ For fastest responses: Use {fastest}")
     
     # Efficiency recommendation
     most_efficient = best_models['most_efficient']
-    recommendations.append(f"⚖️ For best efficiency (quality/speed): Use {most_efficient}")
+    recommendations.append(f"For best efficiency (quality/speed): Use {most_efficient}")
     
     # Task-specific recommendations
     lesson_performance = df[df['prompt_type'] == 'lesson'].groupby('model_name')['overall_score'].mean()
@@ -225,13 +225,13 @@ def generate_recommendations(df: pd.DataFrame, best_models: Dict[str, str]) -> L
     best_lesson = lesson_performance.idxmax()
     best_quiz = quiz_performance.idxmax()
     
-    recommendations.append(f"📚 For lesson generation: Use {best_lesson}")
+    recommendations.append(f"For lesson generation: Use {best_lesson}")
     recommendations.append(f"🧩 For quiz generation: Use {best_quiz}")
     
     # Consistency recommendation
     consistency = df.groupby('model_name')['overall_score'].std().sort_values()
     most_consistent = consistency.index[0]
-    recommendations.append(f"📈 For most consistent results: Use {most_consistent}")
+    recommendations.append(f"For most consistent results: Use {most_consistent}")
     
     # Print recommendations
     for i, rec in enumerate(recommendations, 1):
@@ -241,7 +241,7 @@ def generate_recommendations(df: pd.DataFrame, best_models: Dict[str, str]) -> L
 
 def main():
     """Main analysis function"""
-    print("🔍 LLM Evaluation Results Analysis")
+    print("LLM Evaluation Results Analysis")
     print("=" * 40)
     
     # Load data
@@ -261,8 +261,8 @@ def main():
     # Generate recommendations
     recommendations = generate_recommendations(df, best_models)
     
-    print(f"\n✅ Analysis complete! Check 'custom_analysis_results.png' for visualizations.")
-    print(f"📊 Analyzed {len(df)} test results across {df['model_name'].nunique()} models.")
+    print(f"\nAnalysis complete! Check 'custom_analysis_results.png' for visualizations.")
+    print(f"Analyzed {len(df)} test results across {df['model_name'].nunique()} models.")
 
 if __name__ == "__main__":
     main()

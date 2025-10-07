@@ -114,11 +114,23 @@ def get_help_message(age_group: int) -> str:
 
 📚 `/lesson <topic>` - Get a lesson on any topic
 ➡️ `/next` - Continue to next part of lesson
+🧩 `/quiz` - Take a quiz on your current lesson
 ❓ `/help` - Show this help message
 
-*Examples:*
+*Science Examples (ages 6-12):*
+• /lesson atoms
+• /lesson cells
+• /lesson DNA
+• /lesson sodium
+• /lesson measurements
+• /lesson plants
+• /lesson animals
+• /lesson solar system
+• /lesson energy
+• /lesson weather
+
+*Other Examples:*
 • /lesson fractions
-• /lesson photosynthesis  
 • /lesson world war 2
 """
     
@@ -126,13 +138,15 @@ def get_help_message(age_group: int) -> str:
         additional = """
 🌟 *Tips for little learners:*
 • Ask about anything you're curious about!
-• Try topics like: animals, colors, shapes, numbers
+• Try science topics like: plants, animals, weather
+• Try other topics like: colors, shapes, numbers
 • I'll make it super fun and easy! 🎉
 """
     elif age_group <= 12:
         additional = """
 📖 *Study Tips:*
-• Try school subjects: math, science, history
+• Try science topics: plants, solar system, energy, weather
+• Try other subjects: math, history, geography
 • Ask about homework topics
 • Practice questions help you learn better! ✏️
 """

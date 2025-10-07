@@ -12,6 +12,7 @@ from twilio.rest import Client as TwilioClient
 from .db import get_db, create_tables
 from .handlers import process_whatsapp_message
 from .llm import initialize_llm
+from .rag import initialize_rag
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,6 +45,14 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to initialize LLM: {str(e)}")
         logger.warning("Application will continue but lessons may use fallback content")
     
+    try:
+        logger.info("Initializing RAG service... This may take a few minutes on first run.")
+        initialize_rag()
+        logger.info("RAG service initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize RAG: {str(e)}")
+        logger.warning("Application will continue but science lessons may not be available")
+    
     yield
     
     logger.info("Shutting down WhatsApp AI Tutor application...")
@@ -72,6 +81,7 @@ async def health_check():
         "status": "healthy",
         "database": "connected",
         "llm": "unknown",
+        "rag": "unknown",
         "twilio": "unknown"
     }
     try:
@@ -92,6 +102,15 @@ async def health_check():
             health_status["llm"] = "not_initialized"
     except Exception as e:
         health_status["llm"] = f"error: {str(e)}"
+    
+    try:
+        from .rag import rag_service
+        if rag_service._initialized:
+            health_status["rag"] = "initialized"
+        else:
+            health_status["rag"] = "not_initialized"
+    except Exception as e:
+        health_status["rag"] = f"error: {str(e)}"
     
     if TWILIO_CLIENT:
         health_status["twilio"] = "configured"

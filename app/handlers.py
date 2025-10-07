@@ -2,8 +2,10 @@ import logging
 from typing import Tuple, Optional
 from sqlalchemy.orm import Session
 
-from .db import User, Progress, get_user_by_phone, create_user, update_user, create_progress, get_current_lesson, update_progress
+from .db import User, Progress, get_user_by_phone, create_user, update_user, create_progress, get_current_lesson, update_progress, get_current_quiz
 from .llm import generate_lesson
+from .rag import get_rag_lesson, initialize_rag
+from .quiz import create_quiz_from_lesson, check_quiz_answers
 from .utils import (
     format_for_whatsapp, validate_age, validate_subjects, validate_country, 
     validate_learning_mode, get_help_message, parse_lesson_command, 
@@ -18,11 +20,39 @@ class MessageHandler:
     def __init__(self):
         self.onboarding_steps = {
             'name': 'What should I call you? 😊',
-            'age': 'How old are you? (This helps me adjust lessons for you)',
+            'age': 'How old are you? Enter a number between 6 and 12. (This helps me adjust lessons for you)',
             'country': 'Which country are you from?',
             'subjects': 'What subjects interest you? (e.g., math, science, history - separate with commas)',
             'learning_mode': 'Do you prefer learning through "text" or would you like "audio" lessons in the future?',
             'language': 'What language would you like to learn in? (Currently supporting English - just type "english" or "en")'
+        }
+        
+        # Science topics that can use RAG
+        self.science_topics = {
+            # Biology topics (from Concepts of Biology textbook)
+            'cell', 'cells', 'DNA', 'evolution', 'ecosystem', 'photosynthesis', 
+            'mitosis', 'genetics', 'bacteria', 'virus', 'mammals', 'chromosome',
+            'protein', 'enzyme', 'respiration', 'adaptation', 'organism', 'tissue',
+            'organ', 'system', 'membrane', 'nucleus', 'mitochondria', 'chloroplast',
+            'gene', 'allele', 'mutation', 'species', 'population', 'community',
+            'biome', 'food chain', 'food web', 'decomposer', 'producer', 'consumer',
+            
+            # Chemistry topics (from Chemistry2e textbook)
+            'atom', 'atoms', 'molecule', 'molecules', 'element', 'elements',
+            'compound', 'compounds', 'sodium', 'chlorine', 'hydrogen', 'oxygen',
+            'carbon', 'nitrogen', 'measurements', 'measurement', 'units', 'unit',
+            'density', 'mass', 'volume', 'temperature', 'pressure', 'reaction',
+            'chemical', 'chemistry', 'periodic table', 'periodic', 'table',
+            'bond', 'bonds', 'ionic', 'covalent', 'metal', 'metals', 'nonmetal',
+            'acid', 'base', 'ph', 'solution', 'solutions', 'mixture', 'mixtures',
+            
+            # Original topics
+            'plants', 'trees', 'leaves', 'roots', 'flowers',
+            'animals', 'birds', 'fish', 'reptiles', 'amphibians', 'habitats',
+            'solar system', 'planets', 'sun', 'moon', 'earth', 'mars', 'jupiter', 'saturn',
+            'energy', 'light', 'heat', 'sound', 'electricity', 'renewable energy',
+            'weather', 'rain', 'snow', 'wind', 'clouds', 'climate',
+            'water cycle', 'evaporation', 'condensation', 'precipitation'
         }
     
     def process_message(self, db: Session, phone_number: str, message: str) -> str:
@@ -165,6 +195,13 @@ What would you like to learn about first? 🚀
         elif message.lower().startswith('/next'):
             return self._handle_next_command(db, user)
         
+        elif message.lower().startswith('/quiz'):
+            return self._handle_quiz_command(db, user)
+        
+        # Handle quiz answers (check if user has an active quiz)
+        elif self._is_quiz_answer(message):
+            return self._handle_quiz_answer(db, user, message)
+        
         # Handle general conversation
         else:
             return self._handle_general_message(db, user, message)
@@ -173,11 +210,15 @@ What would you like to learn about first? 🚀
         return get_help_message(user.age)
     
     def _handle_lesson_command(self, db: Session, user: User, message: str) -> str:
-        
         topic = parse_lesson_command(message)
         if not topic:
             return "Please specify a topic! For example: `/lesson fractions` or `/lesson photosynthesis` 📚"
         
+        # Check if this is a science topic that can use RAG
+        if self._is_science_topic(topic):
+            return self._handle_rag_lesson_command(db, user, message)
+        
+        # For non-science topics, use the original LLM approach
         try:
             lesson_content = generate_lesson(topic, user.age, user.name)
             progress = create_progress(db, user.id, topic, lesson_content)
@@ -198,13 +239,50 @@ What would you like to learn about first? 🚀
             return "You don't have any lessons in progress. Start a new lesson with `/lesson <topic>`! 📚"
         
         try:
-            follow_up_topic = f"{current_lesson.topic} - Advanced Concepts"
-            lesson_content = generate_lesson(follow_up_topic, user.age, user.name)
-            update_progress(db, current_lesson, lesson_step=current_lesson.lesson_step + 1, lesson_content=lesson_content)
+            # Check if this is a RAG lesson
+            if current_lesson.is_rag_lesson:
+                # Use RAG for continuing science lessons
+                system_prompt, user_prompt, chunk_id = get_rag_lesson(
+                    current_lesson.topic, user.age, user.name, current_lesson.chunk_id
+                )
+                
+                if chunk_id is None:
+                    return f"Great job! You've completed the lesson on {current_lesson.topic}. Try a new science topic with `/lesson <topic>`! 🔬"
+                
+                # Generate lesson using LLM with RAG context
+                from .llm import llm_service
+                if not llm_service._initialized:
+                    llm_service.initialize()
+                
+                response = llm_service.client.chat.completions.create(
+                    model=llm_service.model_name,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    max_tokens=300,
+                    temperature=0.7
+                )
+                
+                lesson_content = response.choices[0].message.content.strip()
+                update_progress(db, current_lesson, 
+                              lesson_content=lesson_content,
+                              lesson_step=current_lesson.lesson_step + 1,
+                              chunk_id=chunk_id)
+                
+                formatted_lesson = format_for_whatsapp(lesson_content, user.age)
+                
+                return f"🔬 *{current_lesson.topic.title()} - Part {current_lesson.lesson_step}*\n\n{formatted_lesson}\n\n_Type `/next` to continue, /quiz for a quiz related to this topic or`/lesson <topic>` for something new!_"
             
-            formatted_lesson = format_for_whatsapp(lesson_content, user.age)
-            
-            return f"📚 *{current_lesson.topic.title()} - Part {current_lesson.lesson_step}*\n\n{formatted_lesson}\n\n_Type `/next` to continue or `/lesson <topic>` for something new!_"
+            else:
+                # Use original LLM approach for non-RAG lessons
+                follow_up_topic = f"{current_lesson.topic} - Advanced Concepts"
+                lesson_content = generate_lesson(follow_up_topic, user.age, user.name)
+                update_progress(db, current_lesson, lesson_step=current_lesson.lesson_step + 1, lesson_content=lesson_content)
+                
+                formatted_lesson = format_for_whatsapp(lesson_content, user.age)
+                
+                return f"📚 *{current_lesson.topic.title()} - Part {current_lesson.lesson_step}*\n\n{formatted_lesson}\n\n_Type `/next` to continue, /quiz for a quiz related to this topic or `/lesson <topic>` for something new!_"
         
         except Exception as e:
             logger.error(f"Failed to generate next lesson part: {str(e)}")
@@ -235,6 +313,126 @@ What would you like to learn about first? 🚀
             response = responses[hash(user.phone_number) % len(responses)]
         
         return format_for_whatsapp(response, user.age)
+    
+    def _is_science_topic(self, topic: str) -> bool:
+        """Check if a topic is science-related and can use RAG."""
+        topic_lower = topic.lower()
+        
+        # Check for exact matches
+        if topic_lower in self.science_topics:
+            return True
+        
+        # Check for partial matches
+        for science_topic in self.science_topics:
+            if science_topic in topic_lower or topic_lower in science_topic:
+                return True
+        
+        return False
+    
+    def _handle_rag_lesson_command(self, db: Session, user: User, message: str) -> str:
+        """Handle lesson command with RAG for science topics."""
+        topic = parse_lesson_command(message)
+        if not topic:
+            return "Please specify a science topic! For example: `/lesson plants` or `/lesson solar system` 🌱🔬"
+        
+        # Check if user is in the right age range for RAG
+        if user.age < 6 or user.age > 12:
+            return f"I see you're {user.age} years old! My science lessons are designed for kids aged 6-12. Try asking about a different subject, or ask your parents to help you with science! 📚"
+        
+        try:
+            # Get current lesson to check if we're continuing
+            current_lesson = get_current_lesson(db, user.id)
+            current_chunk_id = current_lesson.chunk_id if current_lesson and current_lesson.is_rag_lesson else None
+            
+            # Generate RAG lesson
+            system_prompt, user_prompt, chunk_id = get_rag_lesson(topic, user.age, user.name, current_chunk_id)
+            
+            if chunk_id is None:
+                return f"I'm sorry, I couldn't find information about {topic} in my science database. Try asking about plants, animals, the solar system, energy, or weather! 🔬"
+            
+            # Generate lesson using LLM with RAG context
+            from .llm import llm_service
+            if not llm_service._initialized:
+                llm_service.initialize()
+            
+            response = llm_service.client.chat.completions.create(
+                model=llm_service.model_name,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                max_tokens=300,
+                temperature=0.7
+            )
+            
+            lesson_content = response.choices[0].message.content.strip()
+            
+            # Create or update progress
+            if current_lesson and current_lesson.is_rag_lesson and current_chunk_id:
+                # Continuing existing RAG lesson
+                update_progress(db, current_lesson, 
+                              lesson_content=lesson_content,
+                              lesson_step=current_lesson.lesson_step + 1,
+                              chunk_id=chunk_id)
+            else:
+                # New RAG lesson
+                create_progress(db, user.id, topic, lesson_content, 
+                              is_rag_lesson=True, chunk_id=chunk_id)
+            
+            formatted_lesson = format_for_whatsapp(lesson_content, user.age)
+            
+            logger.info(f"Generated RAG lesson for user {user.phone_number} on topic: {topic}")
+            
+            return f"🔬 *Science Lesson: {topic.title()}*\n\n{formatted_lesson}\n\n_Type `/next` for more on this topic or `/lesson <new topic>` for something else!_"
+        
+        except Exception as e:
+            logger.error(f"Failed to generate RAG lesson for topic {topic}: {str(e)}")
+            return f"Sorry, I had trouble creating a science lesson on {topic}. Please try a different science topic or try again later! 🔬"
+    
+    def _handle_quiz_command(self, db: Session, user: User) -> str:
+        """Handle /quiz command to create a quiz from current lesson"""
+        try:
+            # Get current lesson to determine topic
+            current_lesson = get_current_lesson(db, user.id)
+            if not current_lesson:
+                return "You don't have any lessons in progress. Start a lesson with `/lesson <topic>` first! 📚"
+            
+            quiz_text, quiz_id = create_quiz_from_lesson(db, user.id, current_lesson.topic, user.age, user.name)
+            
+            if quiz_id == 0:
+                return quiz_text  # Error message
+            
+            logger.info(f"Created quiz for user {user.phone_number}")
+            return quiz_text
+            
+        except Exception as e:
+            logger.error(f"Failed to create quiz: {str(e)}")
+            return "Sorry, I had trouble creating a quiz. Please try again! 🧩"
+    
+    def _is_quiz_answer(self, message: str) -> bool:
+        """Check if message looks like quiz answers (e.g., '1A, 2B, 3True')"""
+        import re
+        # Check if message contains patterns like "1A", "2B", "3True", etc.
+        pattern = r'\d+[A-D]|\d+(True|False)'
+        return bool(re.search(pattern, message, re.IGNORECASE))
+    
+    def _handle_quiz_answer(self, db: Session, user: User, message: str) -> str:
+        """Handle quiz answer submission"""
+        try:
+            # Check if user has an active quiz
+            current_quiz = get_current_quiz(db, user.id)
+            if not current_quiz:
+                return "You don't have any active quiz. Start a lesson and use `/quiz` to create one! 🧩"
+            
+            # Check answers and provide feedback
+            feedback = check_quiz_answers(db, user.id, message)
+            
+            logger.info(f"Processed quiz answers for user {user.phone_number}")
+            return feedback
+            
+        except Exception as e:
+            logger.error(f"Failed to process quiz answers: {str(e)}")
+            return "Sorry, I had trouble checking your answers. Please try again! 🧩"
 
 message_handler = MessageHandler()
 

@@ -168,8 +168,9 @@ class RAGService:
         text = re.sub(r'\s+', ' ', text)
         return text.strip()
     
-    def _chunk_text(self, text: str, chunk_size: int = 400, overlap: int = 50) -> List[str]:
-        """Split text into overlapping chunks."""
+    def _chunk_text(self, text: str, chunk_size: int = 200, overlap: int = 60) -> List[str]:
+        """Split text into overlapping chunks.
+        """
         words = text.split()
         chunks = []
         

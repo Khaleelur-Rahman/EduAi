@@ -14,6 +14,7 @@ from .handlers import process_whatsapp_message
 from .llm import initialize_llm
 from .rag import initialize_rag
 
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -164,7 +165,7 @@ async def whatsapp_webhook(
         twiml_response = MessagingResponse()
         twiml_response.message(response_text)
         
-        logger.info(f"Sending response to {phone_number}: {response_text[:100]}...")
+        logger.info(f"Sending response to {phone_number}: {response_text[:100]}... (Length: {len(response_text)} chars)")
         
         return Response(
             content=str(twiml_response), 

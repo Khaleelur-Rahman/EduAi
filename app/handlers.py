@@ -237,7 +237,7 @@ What would you like to learn about first? 🚀
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
                     ],
-                    max_completion_tokens=300,
+                    max_completion_tokens=800,
                     temperature=0.7,
                     top_p=0.8,
                     stream=True
@@ -249,6 +249,78 @@ What would you like to learn about first? 🚀
                         lesson_content += chunk.choices[0].delta.content
                 
                 lesson_content = lesson_content.strip()
+                
+                # Check if content exceeds Twilio's 1400 character limit
+                if len(lesson_content) > 1400:
+                    logger.warning(f"Next lesson response too long ({len(lesson_content)} chars), retrying with stricter limit")
+                    # Retry with a much stricter character limit
+                    retry_system_prompt = f"""You are an expert science teacher for children aged {user.age} years old.
+Your goal is to create an engaging, accurate science lesson using the provided educational content.
+
+Instructions:
+- Topic: {current_lesson.topic}
+- Age group: {user.age} years old
+- Length: Keep it VERY SHORT (under 1200 characters total - this is critical for WhatsApp delivery)
+- Style: Use simple language, clear examples, and everyday situations
+- Use the provided educational content as your source of information
+- Make sure all facts are accurate and age-appropriate
+- Structure: Brief introduction, key explanation and one simple example
+
+CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. Be concise but complete."""
+                    
+                    retry_response = llm_service.client.chat.completions.create(
+                        model=llm_service.model_name,
+                        messages=[
+                            {"role": "system", "content": retry_system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        max_completion_tokens=400,  # Reduced token limit
+                        temperature=0.7,
+                        top_p=0.8,
+                        stream=True
+                    )
+                    
+                    lesson_content = ""
+                    for chunk in retry_response:
+                        if chunk.choices[0].delta.content:
+                            lesson_content += chunk.choices[0].delta.content
+                    
+                    lesson_content = lesson_content.strip()
+                    logger.info(f"Next lesson retry response length: {len(lesson_content)} characters")
+                
+                # Check if content appears to be truncated (doesn't end with proper punctuation)
+                if lesson_content and not lesson_content.endswith(('.', '!', '?', ':', ';')):
+                    logger.warning(f"Next lesson content appears truncated, attempting to complete: {lesson_content[-50:]}")
+                    # Try to complete the truncated content
+                    completion_response = llm_service.client.chat.completions.create(
+                        model=llm_service.model_name,
+                        messages=[
+                            {"role": "system", "content": "Complete the following educational text naturally. Only provide the completion, not the full text."},
+                            {"role": "user", "content": f"Complete this educational text: {lesson_content}"}
+                        ],
+                        max_completion_tokens=200,
+                        temperature=0.3,
+                        top_p=0.8,
+                        stream=False
+                    )
+                    
+                    if completion_response.choices[0].message.content:
+                        completion = completion_response.choices[0].message.content.strip()
+                        lesson_content += completion
+                        logger.info(f"Successfully completed truncated next lesson content")
+                
+                # Final check - if still over limit, truncate at sentence boundary
+                if len(lesson_content) > 1400:
+                    logger.warning(f"Next lesson response still too long ({len(lesson_content)} chars), truncating at sentence boundary")
+                    sentences = lesson_content.split('. ')
+                    truncated = ""
+                    for sentence in sentences:
+                        if len(truncated + sentence + '. ') <= 1400:
+                            truncated += sentence + '. '
+                        else:
+                            break
+                    lesson_content = truncated.strip()
+                    logger.info(f"Next lesson truncated to {len(lesson_content)} characters")
                 update_progress(db, current_lesson, 
                               lesson_content=lesson_content,
                               lesson_step=current_lesson.lesson_step + 1,
@@ -316,7 +388,7 @@ What would you like to learn about first? 🚀
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                max_completion_tokens=300,
+                max_completion_tokens=800,
                 temperature=0.7,
                 top_p=0.8,
                 stream=True
@@ -328,6 +400,77 @@ What would you like to learn about first? 🚀
                     lesson_content += chunk.choices[0].delta.content
             
             lesson_content = lesson_content.strip()
+            
+            if len(lesson_content) > 4600:
+                logger.warning(f"RAG response too long ({len(lesson_content)} chars), retrying with stricter limit")
+                # Retry with a much stricter character limit
+                retry_system_prompt = f"""You are an expert science teacher for children aged {user.age} years old.
+Your goal is to create an engaging, accurate science lesson using the provided educational content.
+
+Instructions:
+- Topic: {topic}
+- Age group: {user.age} years old
+- Length: Keep it VERY SHORT (under 1200 characters total - this is critical for WhatsApp delivery)
+- Style: Use simple language, clear examples, and everyday situations
+- Use the provided educational content as your source of information
+- Make sure all facts are accurate and age-appropriate
+- Structure: Brief introduction, key explanation and one simple example
+
+CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. Be concise but complete."""
+                
+                retry_response = llm_service.client.chat.completions.create(
+                    model=llm_service.model_name,
+                    messages=[
+                        {"role": "system", "content": retry_system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    max_completion_tokens=400,  # Reduced token limit
+                    temperature=0.7,
+                    top_p=0.8,
+                    stream=True
+                )
+                
+                lesson_content = ""
+                for chunk in retry_response:
+                    if chunk.choices[0].delta.content:
+                        lesson_content += chunk.choices[0].delta.content
+                
+                lesson_content = lesson_content.strip()
+                logger.info(f"RAG retry response length: {len(lesson_content)} characters")
+            
+            # Check if content appears to be truncated (doesn't end with proper punctuation)
+            if lesson_content and not lesson_content.endswith(('.', '!', '?', ':', ';')):
+                logger.warning(f"RAG content appears truncated, attempting to complete: {lesson_content[-50:]}")
+                # Try to complete the truncated content
+                completion_response = llm_service.client.chat.completions.create(
+                    model=llm_service.model_name,
+                    messages=[
+                        {"role": "system", "content": "Complete the following educational text naturally. Only provide the completion, not the full text."},
+                        {"role": "user", "content": f"Complete this educational text: {lesson_content}"}
+                    ],
+                    max_completion_tokens=200,
+                    temperature=0.3,
+                    top_p=0.8,
+                    stream=False
+                )
+                
+                if completion_response.choices[0].message.content:
+                    completion = completion_response.choices[0].message.content.strip()
+                    lesson_content += completion
+                    logger.info(f"Successfully completed truncated RAG content")
+            
+            # Final check - if still over limit, truncate at sentence boundary
+            if len(lesson_content) > 1400:
+                logger.warning(f"RAG response still too long ({len(lesson_content)} chars), truncating at sentence boundary")
+                sentences = lesson_content.split('. ')
+                truncated = ""
+                for sentence in sentences:
+                    if len(truncated + sentence + '. ') <= 1400:
+                        truncated += sentence + '. '
+                    else:
+                        break
+                lesson_content = truncated.strip()
+                logger.info(f"RAG truncated to {len(lesson_content)} characters")
             
             create_progress(db, user.id, topic, lesson_content, 
                           is_rag_lesson=True, chunk_id=chunk_id)

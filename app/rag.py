@@ -332,13 +332,15 @@ Your goal is to create an engaging, accurate science lesson using the provided e
 Instructions:
 - Topic: {topic}
 - Age group: {age_group} years old
-- Length: Keep it concise (150-250 words max)
+- Length: Keep it concise (under 1400 characters total)
 - Style: {style_guide}
 - Use the provided educational content as your source of information
 - Make sure all facts are accurate and age-appropriate
 - Structure: Brief introduction, key explanation and a fun example
 
-Important: Base your lesson on the provided educational content. Do not make up facts that aren't in the source material."""
+Important: 
+- Base your lesson on the provided educational content. Do not make up facts that aren't in the source material.
+- Keep the response under 1400 characters to ensure WhatsApp delivery."""
 
         user_prompt = f"""Please teach me about {topic} using this educational content:
 

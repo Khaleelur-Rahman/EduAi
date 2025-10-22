@@ -14,7 +14,7 @@ class LLMService:
         self.model_name = "qwen-3-235b-a22b-instruct-2507"  # Cerebras thinking model
         self.api_key = os.getenv("CEREBRAS_API_KEY")
         self.client = None
-        self.max_tokens = 300
+        self.max_tokens = 800
         self.temperature = 0.7
         self.top_p = 0.8
         self._initialized = False
@@ -91,11 +91,82 @@ class LLMService:
             
             lesson_content = lesson_content.strip()
             
+            if len(lesson_content) > 1400:
+                logger.warning(f"Response too long ({len(lesson_content)} chars), retrying with stricter limit")
+                # Retry with a much stricter character limit
+                retry_system_prompt = f"""You are an expert educator and tutor.
+Your goal is to teach a topic clearly and concisely so that the learner fully understands it.
+
+Instructions:
+- Topic: {topic}
+- Age group: {age_group} years old
+- Length: Keep it VERY SHORT (under 1200 characters total - this is critical for WhatsApp delivery).
+- Style: Use simple language, clear examples, and everyday situations.
+- Structure: Brief introduction, key explanation, and one simple example
+
+Make sure the explanation is **accurate**, **easy to follow**, and **age-appropriate**.
+
+CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. Be concise but complete."""
+                
+                retry_response = self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=[
+                        {"role": "system", "content": retry_system_prompt},
+                        {"role": "user", "content": f"Please teach me about {topic}."}
+                    ],
+                    max_completion_tokens=400,  # Reduced token limit
+                    temperature=0.7,
+                    top_p=0.8,
+                    stream=True
+                )
+                
+                lesson_content = ""
+                for chunk in retry_response:
+                    if chunk.choices[0].delta.content:
+                        lesson_content += chunk.choices[0].delta.content
+                
+                lesson_content = lesson_content.strip()
+                logger.info(f"Retry response length: {len(lesson_content)} characters")
+            
+            # Check if content appears to be truncated (doesn't end with proper punctuation)
+            if lesson_content and not lesson_content.endswith(('.', '!', '?', ':', ';')):
+                logger.warning(f"Content appears truncated, attempting to complete: {lesson_content[-50:]}")
+                # Try to complete the truncated content
+                completion_response = self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=[
+                        {"role": "system", "content": "Complete the following text naturally. Only provide the completion, not the full text."},
+                        {"role": "user", "content": f"Complete this text: {lesson_content}"}
+                    ],
+                    max_completion_tokens=200,
+                    temperature=0.3,
+                    top_p=0.8,
+                    stream=False
+                )
+                
+                if completion_response.choices[0].message.content:
+                    completion = completion_response.choices[0].message.content.strip()
+                    lesson_content += completion
+                    logger.info(f"Successfully completed truncated content")
+            
             if lesson_content:
                 logger.info(f"Cerebras response received: {len(lesson_content)} characters")
                 
                 if len(lesson_content) < 50:
                     raise Exception("Generated content too short")
+                
+                # Final check - if still over limit, truncate at sentence boundary
+                if len(lesson_content) > 1400:
+                    logger.warning(f"Response still too long ({len(lesson_content)} chars), truncating at sentence boundary")
+                    sentences = lesson_content.split('. ')
+                    truncated = ""
+                    for sentence in sentences:
+                        if len(truncated + sentence + '. ') <= 1400:
+                            truncated += sentence + '. '
+                        else:
+                            break
+                    lesson_content = truncated.strip()
+                    logger.info(f"Truncated to {len(lesson_content)} characters")
                 
                 logger.info(f"Successfully generated lesson for topic: {topic}")
                 return lesson_content
@@ -123,7 +194,7 @@ Your goal is to teach a topic clearly and concisely so that the learner fully un
 Instructions:
 - Topic: {topic}
 - Age group: {age_group} years old
-- Length: Keep it short and focused (150-200 words max).
+- Length: Keep it concise and focused (under 1400 characters total).
 - Style: {style_guide}.
 - Structure:
    1. Brief introduction
@@ -132,7 +203,9 @@ Instructions:
 
 Make sure the explanation is **accurate**, **easy to follow**, and **age-appropriate**.
 
-IMPORTANT: Focus only on teaching the topic. Do not introduce yourself or respond to greetings. Start directly with the lesson content."""
+IMPORTANT: 
+- Focus only on teaching the topic. Do not introduce yourself or respond to greetings. Start directly with the lesson content.
+- Keep the response under 1400 characters to ensure WhatsApp delivery."""
         
         greeting = ""
         user_prompt = f"""{greeting}Please teach me about {topic}."""

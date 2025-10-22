@@ -12,14 +12,14 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class QuizGenerator:
-    """Generates quizzes based on RAG content chunks"""
+    """Generates quizzes based on lesson content"""
     
     def __init__(self):
         self.llm_service = llm_service
     
-    def generate_quiz_from_chunk(self, topic: str, chunk_content: str, age_group: int, 
+    def generate_quiz_from_content(self, topic: str, lesson_content: str, age_group: int, 
                                 user_name: str = "") -> List[Dict[str, Any]]:
-        """Generate quiz questions from a content chunk"""
+        """Generate quiz questions from lesson content"""
         
         if not self.llm_service._initialized:
             self.llm_service.initialize()
@@ -62,11 +62,11 @@ Format your response as a JSON array with this structure:
 
 Important: Only respond with valid JSON, no additional text."""
 
-        user_prompt = f"""Create a quiz about {topic} based on this content:
+        user_prompt = f"""Create a quiz about {topic} based on this lesson content:
 
-{chunk_content}
+{lesson_content}
 
-Make sure the questions test understanding of the key concepts in this content."""
+Make sure the questions test understanding of the key concepts in this lesson content."""
 
         try:
             response = self.llm_service.client.chat.completions.create(
@@ -170,9 +170,11 @@ Make sure the questions test understanding of the key concepts in this content."
     def check_answers(self, questions: List[Dict[str, Any]], user_answers: str) -> Tuple[int, str]:
         """Check user answers and provide feedback"""
         try:
-            # Parse user answers (format: "1A, 2B, 3True")
             answer_pairs = []
-            for pair in user_answers.split(','):
+            # Use regex to find all answer patterns regardless of separator (comma, space, newline)
+            pairs = re.findall(r'\d+[A-D]|\d+(?:True|False)', user_answers, re.IGNORECASE)
+            
+            for pair in pairs:
                 pair = pair.strip()
                 if re.match(r'\d+[A-D]', pair) or re.match(r'\d+(True|False)', pair, re.IGNORECASE):
                     answer_pairs.append(pair)
@@ -185,24 +187,53 @@ Make sure the questions test understanding of the key concepts in this content."
             
             for i, (question, answer_pair) in enumerate(zip(questions, answer_pairs)):
                 q_num = i + 1
-                user_answer = answer_pair[1:].upper()  # Remove question number
-                
-                # Normalize answer format
-                if user_answer in ['TRUE', 'FALSE']:
-                    user_answer = user_answer.capitalize()
-                elif user_answer in ['A', 'B', 'C', 'D']:
-                    user_answer = user_answer
+                user_answer = answer_pair[1:].strip().upper()  # Remove question number
+
+                q_type = question.get('type', 'multiple_choice')
+                options = [str(o) for o in question.get('options', [])]
+                correct_answer_raw = str(question.get('correct_answer'))
+
+                # Normalize True/False handling to accept either label (A/B) or text (True/False)
+                if q_type == 'true_false':
+                    # Map user answer to canonical 'True'/'False'
+                    if user_answer in ['A', 'TRUE']:
+                        user_answer_norm = 'True'
+                    elif user_answer in ['B', 'FALSE']:
+                        user_answer_norm = 'False'
+                    else:
+                        user_answer_norm = user_answer.capitalize()
+
+                    # Determine correct answer canonical value
+                    if correct_answer_raw.upper() in ['A', 'B'] and len(options) >= 2:
+                        correct_value = options[0] if correct_answer_raw.upper() == 'A' else options[1]
+                    else:
+                        correct_value = correct_answer_raw
+                    correct_value_norm = 'True' if str(correct_value).strip().lower() == 'true' else 'False'
+
+                    is_correct = (user_answer_norm == correct_value_norm)
+                    correct_display = correct_value_norm
                 else:
-                    user_answer = user_answer.upper()
-                
-                correct_answer = question['correct_answer']
-                is_correct = user_answer == correct_answer
+                    # Multiple choice: compare by letter. If ground truth is text, map it to its letter.
+                    if correct_answer_raw.upper() in ['A', 'B', 'C', 'D']:
+                        correct_letter = correct_answer_raw.upper()
+                    else:
+                        # Try to find which option matches the provided text
+                        correct_letter = None
+                        for idx, opt in enumerate(options):
+                            if str(opt).strip().lower() == correct_answer_raw.strip().lower():
+                                correct_letter = chr(65 + idx)  # A/B/C/D
+                                break
+                        # Fallback to A if unknown to avoid crash
+                        if not correct_letter:
+                            correct_letter = 'A'
+                    is_correct = (user_answer == correct_letter)
+                    correct_display = correct_letter
                 
                 if is_correct:
                     correct_count += 1
                     feedback += f"✅ *Q{q_num} correct!* {question['explanation']}\n\n"
                 else:
-                    feedback += f"❌ *Q{q_num} wrong.* Correct answer: {correct_answer}. {question['explanation']}\n\n"
+                    feedback += f"❌ *Q{q_num} wrong.* Correct answer: {correct_display}. {question['explanation']}\n\n"
             
             score_text = f"🎯 *Score: {correct_count}/{len(questions)}*"
             if correct_count == len(questions):
@@ -224,32 +255,15 @@ quiz_generator = QuizGenerator()
 
 def create_quiz_from_lesson(db: Session, user_id: int, topic: str, age_group: int, 
                            user_name: str = "") -> Tuple[str, int]:
-    """Create a quiz based on the current lesson"""
+    """Create a quiz based on the current lesson content"""
     try:
         current_lesson = get_current_lesson(db, user_id)
         if not current_lesson:
             return "You don't have any lessons in progress. Start a lesson with `/lesson <topic>` first! 📚", 0
         
-        # print(f"Current lesson: {current_lesson}")
-        # if not current_lesson.is_rag_lesson or not current_lesson.chunk_id:
-        #     return "Quizzes are only available for science lessons. Try a science topic! 🔬", 0
-        
-        # Get the content chunk from RAG
-        chunks = rag_service.retrieve_relevant_chunks(topic, age_group)
-        if not chunks:
-            return f"Sorry, I couldn't find content for {topic} to create a quiz. Try a different topic! 🔬", 0
-        
-        # Find the specific chunk used in the lesson
-        target_chunk = None
-        for chunk in chunks:
-            if chunk['chunk_id'] == current_lesson.chunk_id:
-                target_chunk = chunk
-                break
-        
-        if not target_chunk:
-            target_chunk = chunks[0]
-        
-        questions = quiz_generator.generate_quiz_from_chunk(
+        # Generate quiz questions from the actual lesson content sent to WhatsApp
+        # This ensures questions align with what the student actually learned
+        questions = quiz_generator.generate_quiz_from_content(
             topic, current_lesson.lesson_content, age_group, user_name
         )
 
@@ -261,7 +275,7 @@ def create_quiz_from_lesson(db: Session, user_id: int, topic: str, age_group: in
             lesson_id=current_lesson.id,
             topic=topic,
             lesson_step=current_lesson.lesson_step,
-            chunk_id=target_chunk['chunk_id'],  # Use the actual chunk_id from the target chunk
+            chunk_id=current_lesson.chunk_id,  # Use the lesson's chunk_id (can be None for non-RAG lessons)
             questions=json.dumps(questions)
         )
         

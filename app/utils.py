@@ -120,18 +120,7 @@ def get_help_message(age_group: int) -> str:
 *Science Examples (ages 6-12):*
 • /lesson atoms
 • /lesson cells
-• /lesson DNA
-• /lesson sodium
-• /lesson measurements
-• /lesson plants
-• /lesson animals
-• /lesson solar system
-• /lesson energy
-• /lesson weather
 
-*Other Examples:*
-• /lesson fractions
-• /lesson world war 2
 """
     
     if age_group <= 8:
@@ -139,14 +128,12 @@ def get_help_message(age_group: int) -> str:
 🌟 *Tips for little learners:*
 • Ask about anything you're curious about!
 • Try science topics like: plants, animals, weather
-• Try other topics like: colors, shapes, numbers
 • I'll make it super fun and easy! 🎉
 """
     elif age_group <= 12:
         additional = """
 📖 *Study Tips:*
 • Try science topics: plants, solar system, energy, weather
-• Try other subjects: math, history, geography
 • Ask about homework topics
 • Practice questions help you learn better! ✏️
 """

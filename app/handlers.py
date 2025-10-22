@@ -21,10 +21,10 @@ class MessageHandler:
         self.onboarding_steps = {
             'name': 'What should I call you? 😊',
             'age': 'How old are you? Enter a number between 6 and 12. (This helps me adjust lessons for you)',
-            'country': 'Which country are you from?',
-            'subjects': 'What subjects interest you? (e.g., math, science, history - separate with commas)',
-            'learning_mode': 'Do you prefer learning through "text" or would you like "audio" lessons in the future?',
-            'language': 'What language would you like to learn in? (Currently supporting English - just type "english" or "en")'
+            # 'country': 'Which country are you from?',
+            # 'subjects': 'What subjects interest you? (e.g., math, science, history - separate with commas)',
+            # 'learning_mode': 'Do you prefer learning through "text" or would you like "audio" lessons in the future?',
+            # 'language': 'What language would you like to learn in? (Currently supporting English - just type "english" or "en")'
         }
         
         # RAG confidence threshold for determining if retrieved content is relevant
@@ -62,14 +62,24 @@ class MessageHandler:
             return self._process_name_step(db, user, message)
         elif current_step == 'age':
             return self._process_age_step(db, user, message)
-        elif current_step == 'country':
-            return self._process_country_step(db, user, message)
-        elif current_step == 'subjects':
-            return self._process_subjects_step(db, user, message)
-        elif current_step == 'learning_mode':
-            return self._process_learning_mode_step(db, user, message)
-        elif current_step == 'language':
-            return self._process_language_step(db, user, message)
+        # The following onboarding steps are not used in the simplified flow:
+        # elif current_step == 'country':
+        #     return self._process_country_step(db, user, message)
+        # elif current_step == 'subjects':
+        #     return self._process_subjects_step(db, user, message)
+        # elif current_step == 'learning_mode':
+        #     return self._process_learning_mode_step(db, user, message)
+        # elif current_step == 'language':
+        #     return self._process_language_step(db, user, message)
+        
+        # If we reach here, the user is on a legacy/unrecognized step (e.g., 'country').
+        # Reset onboarding to 'name' to recover gracefully.
+        try:
+            update_user(db, user, onboarding_step='name')
+        except Exception:
+            pass
+        # Return the first onboarding prompt directly
+        return self.onboarding_steps['name']
         
         return "Something went wrong with onboarding. Let me help you start over! What's your name?"
     
@@ -90,72 +100,76 @@ class MessageHandler:
         if age is None:
             return "Please enter a valid age (between 3 and 100). How old are you?"
         
-        update_user(db, user, age=age, onboarding_step='country')
+        # Complete onboarding after collecting age in the simplified flow
+        update_user(db, user, age=age, language='en', is_onboarded=True, onboarding_step='completed')
         emoji = get_greeting_emoji(age)
         
-        return f"Got it! {emoji}\n\n{self.onboarding_steps['country']}"
-    
-    def _process_country_step(self, db: Session, user: User, message: str) -> str:
-        country = validate_country(message)
-        
-        if country is None:
-            return "Please enter a valid country name. Which country are you from?"
-        
-        update_user(db, user, country=country, onboarding_step='subjects')
-        
-        return f"Great! Welcome from {country}! 🌍\n\n{self.onboarding_steps['subjects']}"
-    
-    def _process_subjects_step(self, db: Session, user: User, message: str) -> str:
-        subjects = validate_subjects(message)
-        
-        if not subjects:
-            return "Please enter at least one subject you're interested in (e.g., math, science, history):"
-        
-        subjects_json = store_subjects_as_json(subjects)
-        update_user(db, user, preferred_subjects=subjects_json, onboarding_step='learning_mode')
-        
-        subjects_text = ", ".join(subjects)
-        return f"Awesome! I see you're interested in: {subjects_text} 📚\n\n{self.onboarding_steps['learning_mode']}"
-    
-    def _process_learning_mode_step(self, db: Session, user: User, message: str) -> str:
-        mode = validate_learning_mode(message)
-        
-        if mode is None:
-            return 'Please choose either "text" for written lessons or "audio" for spoken lessons (audio coming soon!):'
-        
-        update_user(db, user, learning_mode=mode, onboarding_step='language')
-        
-        mode_text = "text-based" if mode == 'text' else "audio-based"
-        return f"Perfect! I'll provide {mode_text} lessons. 📖\n\n{self.onboarding_steps['language']}"
-    
-    def _process_language_step(self, db: Session, user: User, message: str) -> str:
-        language = message.strip().lower()
-        
-        if language not in ['english', 'en', 'eng']:
-            return 'Currently I only support English. Please type "english" or "en" to continue:'
-        
-        # Complete onboarding
-        update_user(db, user, language='en', is_onboarded=True, onboarding_step='completed')
-        
-        emoji = get_greeting_emoji(user.age)
         welcome_msg = f"""
 🎉 *Welcome to your personalized AI Tutor, {user.name}!* {emoji}
 
 You're all set up! Here's what I know about you:
-• Age: {user.age}
-• Country: {user.country}
-• Learning mode: {user.learning_mode}
+• Age: {age}
 
 *Ready to learn? Try these commands:*
 📚 `/lesson <topic>` - Start learning any topic
 ❓ `/help` - Get help and see all commands
 
-*Example:* Try typing `/lesson fractions` or `/lesson photosynthesis`
+*Example:* Try typing `/lesson photosynthesis`
 
 What would you like to learn about first? 🚀
         """
         
-        return format_for_whatsapp(welcome_msg, user.age)
+        return format_for_whatsapp(welcome_msg, age)
+    
+    # The following handlers are unused in the simplified onboarding and are kept
+    # commented for reference if we re-enable extended onboarding later.
+    # def _process_country_step(self, db: Session, user: User, message: str) -> str:
+    #     country = validate_country(message)
+    #     if country is None:
+    #         return "Please enter a valid country name. Which country are you from?"
+    #     update_user(db, user, country=country, onboarding_step='subjects')
+    #     return f"Great! Welcome from {country}! 🌍\n\n{self.onboarding_steps['subjects']}"
+    
+    # def _process_subjects_step(self, db: Session, user: User, message: str) -> str:
+    #     subjects = validate_subjects(message)
+    #     if not subjects:
+    #         return "Please enter at least one subject you're interested in (e.g., math, science, history):"
+    #     subjects_json = store_subjects_as_json(subjects)
+    #     update_user(db, user, preferred_subjects=subjects_json, onboarding_step='learning_mode')
+    #     subjects_text = ", ".join(subjects)
+    #     return f"Awesome! I see you're interested in: {subjects_text} 📚\n\n{self.onboarding_steps['learning_mode']}"
+    
+    # def _process_learning_mode_step(self, db: Session, user: User, message: str) -> str:
+    #     mode = validate_learning_mode(message)
+    #     if mode is None:
+    #         return 'Please choose either "text" for written lessons or "audio" for spoken lessons (audio coming soon!):'
+    #     update_user(db, user, learning_mode=mode, onboarding_step='language')
+    #     mode_text = "text-based" if mode == 'text' else "audio-based"
+    #     return f"Perfect! I'll provide {mode_text} lessons. 📖\n\n{self.onboarding_steps['language']}"
+    
+    # def _process_language_step(self, db: Session, user: User, message: str) -> str:
+    #     language = message.strip().lower()
+    #     if language not in ['english', 'en', 'eng']:
+    #         return 'Currently I only support English. Please type "english" or "en" to continue:'
+    #     update_user(db, user, language='en', is_onboarded=True, onboarding_step='completed')
+    #     emoji = get_greeting_emoji(user.age)
+    #     welcome_msg = f"""
+    # 🎉 *Welcome to your personalized AI Tutor, {user.name}!* {emoji}
+    #
+    # You're all set up! Here's what I know about you:
+    # • Age: {user.age}
+    # • Country: {user.country}
+    # • Learning mode: {user.learning_mode}
+    #
+    # *Ready to learn? Try these commands:*
+    # 📚 `/lesson <topic>` - Start learning any topic
+    # ❓ `/help` - Get help and see all commands
+    #
+    # *Example:* Try typing `/lesson fractions` or `/lesson photosynthesis`
+    #
+    # What would you like to learn about first? 🚀
+    #         """
+    #     return format_for_whatsapp(welcome_msg, user.age)
     
     def _handle_regular_message(self, db: Session, user: User, message: str) -> str:
         message = message.strip()
@@ -396,11 +410,14 @@ What would you like to learn about first? 🚀
             return "Sorry, I had trouble creating a quiz. Please try again! 🧩"
     
     def _is_quiz_answer(self, message: str) -> bool:
-        """Check if message looks like quiz answers (e.g., '1A, 2B, 3True')"""
+        """Check if message looks like quiz answers (e.g., '1A, 2B, 3True' or '1A 2A 3A')"""
         import re
         # Check if message contains patterns like "1A", "2B", "3True", etc.
+        # Allow spaces or commas as separators
         pattern = r'\d+[A-D]|\d+(True|False)'
-        return bool(re.search(pattern, message, re.IGNORECASE))
+        matches = re.findall(pattern, message, re.IGNORECASE)
+        # Consider it a quiz answer if we find at least 2 matches (likely multiple questions)
+        return len(matches) >= 2
     
     def _handle_quiz_answer(self, db: Session, user: User, message: str) -> str:
         """Handle quiz answer submission"""

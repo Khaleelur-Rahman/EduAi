@@ -1,0 +1,1903 @@
+{
+  "experiment_config": {
+    "chunk_sizes": [
+      150,
+      200,
+      400,
+      500
+    ],
+    "overlap_percentages": [
+      10,
+      20,
+      30
+    ],
+    "test_queries": [
+      "How do plants transport water from roots to leaves?",
+      "What is photosynthesis and how does it work?",
+      "Explain the process of transpiration in plants",
+      "What are the different parts of a plant cell?",
+      "How do plants make their own food?",
+      "What is the role of chlorophyll in plants?",
+      "How do plants absorb water and nutrients?",
+      "What happens during plant respiration?",
+      "Explain the water cycle in plants",
+      "What are stomata and what do they do?"
+    ],
+    "timestamp": "2025-10-17T18:31:41.197170"
+  },
+  "results": [
+    {
+      "chunk_size": 150,
+      "overlap_percentage": 10,
+      "overlap_tokens": 15,
+      "init_time": 62.96101665496826,
+      "total_chunks": 4885,
+      "avg_similarity": 0.5813873791694641,
+      "max_similarity": 0.7323858737945557,
+      "min_similarity": 0.3769684433937073,
+      "avg_coverage_score": 0.02,
+      "avg_relevance_score": 0.5927548825740815,
+      "query_results": [
+        {
+          "query": "How do plants transport water from roots to leaves?",
+          "num_chunks": 5,
+          "avg_similarity": 0.6039267778396606,
+          "max_similarity": 0.6687673330307007,
+          "min_similarity": 0.5613451600074768,
+          "coverage_score": 0.0,
+          "relevance_score": 0.6197623451550802,
+          "similarities": [
+            0.6687673330307007,
+            0.6100466847419739,
+            0.592117190361023,
+            0.5873575210571289,
+            0.5613451600074768
+          ]
+        },
+        {
+          "query": "What is photosynthesis and how does it work?",
+          "num_chunks": 5,
+          "avg_similarity": 0.6972034990787506,
+          "max_similarity": 0.7323858737945557,
+          "min_similarity": 0.6797352731227875,
+          "coverage_score": 0.2,
+          "relevance_score": 0.704773372411728,
+          "similarities": [
+            0.7323858737945557,
+            0.6955456137657166,
+            0.6910520195960999,
+            0.6872987151145935,
+            0.6797352731227875
+          ]
+        },
+        {
+          "query": "Explain the process of transpiration in plants",
+          "num_chunks": 5,
+          "avg_similarity": 0.5808526456356049,
+          "max_similarity": 0.5914903283119202,
+          "min_similarity": 0.5696810781955719,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5842696746190389,
+          "similarities": [
+            0.5914903283119202,
+            0.5858634114265442,
+            0.5790019333362579,
+            0.5782264769077301,
+            0.5696810781955719
+          ]
+        },
+        {
+          "query": "What are the different parts of a plant cell?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5944692671298981,
+          "max_similarity": 0.6149606704711914,
+          "min_similarity": 0.5692279040813446,
+          "coverage_score": 0.0,
+          "relevance_score": 0.6022074441115061,
+          "similarities": [
+            0.6149606704711914,
+            0.6049283444881439,
+            0.602908194065094,
+            0.5803212225437164,
+            0.5692279040813446
+          ]
+        },
+        {
+          "query": "How do plants make their own food?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5359569966793061,
+          "max_similarity": 0.6017969846725464,
+          "min_similarity": 0.48889297246932983,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5545921663443247,
+          "similarities": [
+            0.6017969846725464,
+            0.5514162182807922,
+            0.5399821102619171,
+            0.4976966977119446,
+            0.48889297246932983
+          ]
+        },
+        {
+          "query": "What is the role of chlorophyll in plants?",
+          "num_chunks": 5,
+          "avg_similarity": 0.6194264113903045,
+          "max_similarity": 0.6543310880661011,
+          "min_similarity": 0.5757961273193359,
+          "coverage_score": 0.0,
+          "relevance_score": 0.633645256360372,
+          "similarities": [
+            0.6543310880661011,
+            0.6494584083557129,
+            0.6243007779121399,
+            0.593245655298233,
+            0.5757961273193359
+          ]
+        },
+        {
+          "query": "How do plants absorb water and nutrients?",
+          "num_chunks": 5,
+          "avg_similarity": 0.6117757081985473,
+          "max_similarity": 0.6717632412910461,
+          "min_similarity": 0.5875744819641113,
+          "coverage_score": 0.0,
+          "relevance_score": 0.6243294000625611,
+          "similarities": [
+            0.6717632412910461,
+            0.6115987002849579,
+            0.596271276473999,
+            0.5916708409786224,
+            0.5875744819641113
+          ]
+        },
+        {
+          "query": "What happens during plant respiration?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5703216135501862,
+          "max_similarity": 0.5893210768699646,
+          "min_similarity": 0.548989862203598,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5773078540960948,
+          "similarities": [
+            0.5893210768699646,
+            0.5851763784885406,
+            0.5670755505561829,
+            0.5610451996326447,
+            0.548989862203598
+          ]
+        },
+        {
+          "query": "Explain the water cycle in plants",
+          "num_chunks": 5,
+          "avg_similarity": 0.5664190888404846,
+          "max_similarity": 0.5853687822818756,
+          "min_similarity": 0.5473452508449554,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5735252618789672,
+          "similarities": [
+            0.5853687822818756,
+            0.5782017707824707,
+            0.5735234022140503,
+            0.547656238079071,
+            0.5473452508449554
+          ]
+        },
+        {
+          "query": "What are stomata and what do they do?",
+          "num_chunks": 5,
+          "avg_similarity": 0.43352178335189817,
+          "max_similarity": 0.49645769596099854,
+          "min_similarity": 0.3769684433937073,
+          "coverage_score": 0.0,
+          "relevance_score": 0.45313605070114144,
+          "similarities": [
+            0.49645769596099854,
+            0.4676402807235718,
+            0.41413772106170654,
+            0.41240477561950684,
+            0.3769684433937073
+          ]
+        }
+      ]
+    },
+    {
+      "chunk_size": 200,
+      "overlap_percentage": 10,
+      "overlap_tokens": 20,
+      "init_time": 57.4631826877594,
+      "total_chunks": 3664,
+      "avg_similarity": 0.5553156608343124,
+      "max_similarity": 0.7325765490531921,
+      "min_similarity": 0.3258514404296875,
+      "avg_coverage_score": 0.02,
+      "avg_relevance_score": 0.5659207473198574,
+      "query_results": [
+        {
+          "query": "How do plants transport water from roots to leaves?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5505358815193176,
+          "max_similarity": 0.5865879058837891,
+          "min_similarity": 0.5198977887630463,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5616961578528087,
+          "similarities": [
+            0.5865879058837891,
+            0.5680338144302368,
+            0.5441499948501587,
+            0.5340099036693573,
+            0.5198977887630463
+          ]
+        },
+        {
+          "query": "What is photosynthesis and how does it work?",
+          "num_chunks": 5,
+          "avg_similarity": 0.6924314558506012,
+          "max_similarity": 0.7325765490531921,
+          "min_similarity": 0.6666263341903687,
+          "coverage_score": 0.2,
+          "relevance_score": 0.7021076619625092,
+          "similarities": [
+            0.7325765490531921,
+            0.6940640211105347,
+            0.6880690157413483,
+            0.6808213591575623,
+            0.6666263341903687
+          ]
+        },
+        {
+          "query": "Explain the process of transpiration in plants",
+          "num_chunks": 5,
+          "avg_similarity": 0.5655243337154389,
+          "max_similarity": 0.5819799602031708,
+          "min_similarity": 0.5538456439971924,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5702767391999563,
+          "similarities": [
+            0.5819799602031708,
+            0.5729966163635254,
+            0.5608202815055847,
+            0.557979166507721,
+            0.5538456439971924
+          ]
+        },
+        {
+          "query": "What are the different parts of a plant cell?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5735882997512818,
+          "max_similarity": 0.6053598523139954,
+          "min_similarity": 0.548816978931427,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5827058672904968,
+          "similarities": [
+            0.6053598523139954,
+            0.5802065134048462,
+            0.5770294070243835,
+            0.5565287470817566,
+            0.548816978931427
+          ]
+        },
+        {
+          "query": "How do plants make their own food?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5156562149524688,
+          "max_similarity": 0.5805471539497375,
+          "min_similarity": 0.4807576537132263,
+          "coverage_score": 0.0,
+          "relevance_score": 0.532466435432434,
+          "similarities": [
+            0.5805471539497375,
+            0.5399821102619171,
+            0.48958635330200195,
+            0.4874078035354614,
+            0.4807576537132263
+          ]
+        },
+        {
+          "query": "What is the role of chlorophyll in plants?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5916584849357605,
+          "max_similarity": 0.6394676864147186,
+          "min_similarity": 0.5654522180557251,
+          "coverage_score": 0.0,
+          "relevance_score": 0.6030543982982636,
+          "similarities": [
+            0.6394676864147186,
+            0.5955772399902344,
+            0.5851258039474487,
+            0.5726694762706757,
+            0.5654522180557251
+          ]
+        },
+        {
+          "query": "How do plants absorb water and nutrients?",
+          "num_chunks": 5,
+          "avg_similarity": 0.6096051931381226,
+          "max_similarity": 0.6353580951690674,
+          "min_similarity": 0.5767797231674194,
+          "coverage_score": 0.0,
+          "relevance_score": 0.6208082000414531,
+          "similarities": [
+            0.6353580951690674,
+            0.6335234642028809,
+            0.6197295784950256,
+            0.5826351046562195,
+            0.5767797231674194
+          ]
+        },
+        {
+          "query": "What happens during plant respiration?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5297476768493652,
+          "max_similarity": 0.5489519238471985,
+          "min_similarity": 0.5154768824577332,
+          "coverage_score": 0.0,
+          "relevance_score": 0.536392084757487,
+          "similarities": [
+            0.5489519238471985,
+            0.5485361814498901,
+            0.5199532508850098,
+            0.5158201456069946,
+            0.5154768824577332
+          ]
+        },
+        {
+          "query": "Explain the water cycle in plants",
+          "num_chunks": 5,
+          "avg_similarity": 0.5631497621536254,
+          "max_similarity": 0.5866990685462952,
+          "min_similarity": 0.5417574644088745,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5709598163763682,
+          "similarities": [
+            0.5866990685462952,
+            0.5782911479473114,
+            0.5579775869846344,
+            0.551023542881012,
+            0.5417574644088745
+          ]
+        },
+        {
+          "query": "What are stomata and what do they do?",
+          "num_chunks": 5,
+          "avg_similarity": 0.36125930547714236,
+          "max_similarity": 0.4454329013824463,
+          "min_similarity": 0.3258514404296875,
+          "coverage_score": 0.0,
+          "relevance_score": 0.3787401119867961,
+          "similarities": [
+            0.4454329013824463,
+            0.35272711515426636,
+            0.3526071310043335,
+            0.329677939414978,
+            0.3258514404296875
+          ]
+        }
+      ]
+    },
+    {
+      "chunk_size": 200,
+      "overlap_percentage": 20,
+      "overlap_tokens": 40,
+      "init_time": 59.22825288772583,
+      "total_chunks": 4122,
+      "avg_similarity": 0.5629176104068756,
+      "max_similarity": 0.6894701719284058,
+      "min_similarity": 0.35620200634002686,
+      "avg_coverage_score": 0.0,
+      "avg_relevance_score": 0.5737945443391801,
+      "query_results": [
+        {
+          "query": "How do plants transport water from roots to leaves?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5619395852088929,
+          "max_similarity": 0.6167503595352173,
+          "min_similarity": 0.5290871560573578,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5764615952968597,
+          "similarities": [
+            0.6167503595352173,
+            0.5765136480331421,
+            0.5533368587493896,
+            0.5340099036693573,
+            0.5290871560573578
+          ]
+        },
+        {
+          "query": "What is photosynthesis and how does it work?",
+          "num_chunks": 5,
+          "avg_similarity": 0.6836873829364777,
+          "max_similarity": 0.6894701719284058,
+          "min_similarity": 0.6795971095561981,
+          "coverage_score": 0.0,
+          "relevance_score": 0.6852415819962822,
+          "similarities": [
+            0.6894701719284058,
+            0.6843882203102112,
+            0.684160053730011,
+            0.6808213591575623,
+            0.6795971095561981
+          ]
+        },
+        {
+          "query": "Explain the process of transpiration in plants",
+          "num_chunks": 5,
+          "avg_similarity": 0.5519731938838959,
+          "max_similarity": 0.5596233010292053,
+          "min_similarity": 0.5416998267173767,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5548191706339519,
+          "similarities": [
+            0.5596233010292053,
+            0.5557699501514435,
+            0.5538456439971924,
+            0.5489272475242615,
+            0.5416998267173767
+          ]
+        },
+        {
+          "query": "What are the different parts of a plant cell?",
+          "num_chunks": 5,
+          "avg_similarity": 0.566818791627884,
+          "max_similarity": 0.5802065134048462,
+          "min_similarity": 0.548816978931427,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5729662617047627,
+          "similarities": [
+            0.5802065134048462,
+            0.5787370204925537,
+            0.5770294070243835,
+            0.5493040382862091,
+            0.548816978931427
+          ]
+        },
+        {
+          "query": "How do plants make their own food?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5230886042118073,
+          "max_similarity": 0.5805471539497375,
+          "min_similarity": 0.48286962509155273,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5390330096085867,
+          "similarities": [
+            0.5805471539497375,
+            0.533397376537323,
+            0.529042512178421,
+            0.48958635330200195,
+            0.48286962509155273
+          ]
+        },
+        {
+          "query": "What is the role of chlorophyll in plants?",
+          "num_chunks": 5,
+          "avg_similarity": 0.6226470947265625,
+          "max_similarity": 0.6810886859893799,
+          "min_similarity": 0.5536583662033081,
+          "coverage_score": 0.0,
+          "relevance_score": 0.6450012922286987,
+          "similarities": [
+            0.6810886859893799,
+            0.6760295629501343,
+            0.6068816184997559,
+            0.5955772399902344,
+            0.5536583662033081
+          ]
+        },
+        {
+          "query": "How do plants absorb water and nutrients?",
+          "num_chunks": 5,
+          "avg_similarity": 0.59028000831604,
+          "max_similarity": 0.6216740310192108,
+          "min_similarity": 0.5771504044532776,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5964002549648284,
+          "similarities": [
+            0.6216740310192108,
+            0.5853915512561798,
+            0.5845489501953125,
+            0.5826351046562195,
+            0.5771504044532776
+          ]
+        },
+        {
+          "query": "What happens during plant respiration?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5440213263034821,
+          "max_similarity": 0.5903858244419098,
+          "min_similarity": 0.5154768824577332,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5566443542639414,
+          "similarities": [
+            0.5903858244419098,
+            0.5594807863235474,
+            0.5348098874092102,
+            0.5199532508850098,
+            0.5154768824577332
+          ]
+        },
+        {
+          "query": "Explain the water cycle in plants",
+          "num_chunks": 5,
+          "avg_similarity": 0.5875125229358673,
+          "max_similarity": 0.6530747413635254,
+          "min_similarity": 0.5598392486572266,
+          "coverage_score": 0.0,
+          "relevance_score": 0.6008457342783611,
+          "similarities": [
+            0.6530747413635254,
+            0.5804963111877441,
+            0.577183187007904,
+            0.5669691264629364,
+            0.5598392486572266
+          ]
+        },
+        {
+          "query": "What are stomata and what do they do?",
+          "num_chunks": 5,
+          "avg_similarity": 0.39720759391784666,
+          "max_similarity": 0.44900476932525635,
+          "min_similarity": 0.35620200634002686,
+          "coverage_score": 0.0,
+          "relevance_score": 0.41053218841552735,
+          "similarities": [
+            0.44900476932525635,
+            0.40259623527526855,
+            0.38990211486816406,
+            0.3883328437805176,
+            0.35620200634002686
+          ]
+        }
+      ]
+    },
+    {
+      "chunk_size": 200,
+      "overlap_percentage": 30,
+      "overlap_tokens": 60,
+      "init_time": 61.941925048828125,
+      "total_chunks": 4711,
+      "avg_similarity": 0.5748750430345535,
+      "max_similarity": 0.7093766927719116,
+      "min_similarity": 0.37681496143341064,
+      "avg_coverage_score": 0.08,
+      "avg_relevance_score": 0.5866020365556082,
+      "query_results": [
+        {
+          "query": "How do plants transport water from roots to leaves?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5618352174758912,
+          "max_similarity": 0.6409770846366882,
+          "min_similarity": 0.5340099036693573,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5764232655366262,
+          "similarities": [
+            0.6409770846366882,
+            0.5474627315998077,
+            0.5441499948501587,
+            0.5425763726234436,
+            0.5340099036693573
+          ]
+        },
+        {
+          "query": "What is photosynthesis and how does it work?",
+          "num_chunks": 5,
+          "avg_similarity": 0.6994713425636292,
+          "max_similarity": 0.7093766927719116,
+          "min_similarity": 0.6863997876644135,
+          "coverage_score": 0.6,
+          "relevance_score": 0.7034098486105601,
+          "similarities": [
+            0.7093766927719116,
+            0.7057102620601654,
+            0.7032834887504578,
+            0.6925864815711975,
+            0.6863997876644135
+          ]
+        },
+        {
+          "query": "Explain the process of transpiration in plants",
+          "num_chunks": 5,
+          "avg_similarity": 0.575168251991272,
+          "max_similarity": 0.6029019057750702,
+          "min_similarity": 0.5552112460136414,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5839310824871063,
+          "similarities": [
+            0.6029019057750702,
+            0.5938876569271088,
+            0.5660139322280884,
+            0.5578265190124512,
+            0.5552112460136414
+          ]
+        },
+        {
+          "query": "What are the different parts of a plant cell?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5983489394187927,
+          "max_similarity": 0.6206653714179993,
+          "min_similarity": 0.5546029806137085,
+          "coverage_score": 0.0,
+          "relevance_score": 0.6098128954569498,
+          "similarities": [
+            0.6206653714179993,
+            0.6200410723686218,
+            0.6162287592887878,
+            0.5802065134048462,
+            0.5546029806137085
+          ]
+        },
+        {
+          "query": "How do plants make their own food?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5371642291545868,
+          "max_similarity": 0.5805471539497375,
+          "min_similarity": 0.48958635330200195,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5520471851030986,
+          "similarities": [
+            0.5805471539497375,
+            0.5547137558460236,
+            0.5475828647613525,
+            0.5133910179138184,
+            0.48958635330200195
+          ]
+        },
+        {
+          "query": "What is the role of chlorophyll in plants?",
+          "num_chunks": 5,
+          "avg_similarity": 0.624311375617981,
+          "max_similarity": 0.7029483914375305,
+          "min_similarity": 0.5786845684051514,
+          "coverage_score": 0.2,
+          "relevance_score": 0.6440261443456013,
+          "similarities": [
+            0.7029483914375305,
+            0.6427711248397827,
+            0.6015755534172058,
+            0.5955772399902344,
+            0.5786845684051514
+          ]
+        },
+        {
+          "query": "How do plants absorb water and nutrients?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5946707546710968,
+          "max_similarity": 0.6666540801525116,
+          "min_similarity": 0.5587890148162842,
+          "coverage_score": 0.0,
+          "relevance_score": 0.6098338385423024,
+          "similarities": [
+            0.6666540801525116,
+            0.5884958505630493,
+            0.5826351046562195,
+            0.5767797231674194,
+            0.5587890148162842
+          ]
+        },
+        {
+          "query": "What happens during plant respiration?",
+          "num_chunks": 5,
+          "avg_similarity": 0.558730810880661,
+          "max_similarity": 0.59150230884552,
+          "min_similarity": 0.543270468711853,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5660188555717468,
+          "similarities": [
+            0.59150230884552,
+            0.5613931715488434,
+            0.5489519238471985,
+            0.5485361814498901,
+            0.543270468711853
+          ]
+        },
+        {
+          "query": "Explain the water cycle in plants",
+          "num_chunks": 5,
+          "avg_similarity": 0.5838622331619263,
+          "max_similarity": 0.6070984601974487,
+          "min_similarity": 0.5648486614227295,
+          "coverage_score": 0.0,
+          "relevance_score": 0.590299125512441,
+          "similarities": [
+            0.6070984601974487,
+            0.5892369747161865,
+            0.5809438824653625,
+            0.577183187007904,
+            0.5648486614227295
+          ]
+        },
+        {
+          "query": "What are stomata and what do they do?",
+          "num_chunks": 5,
+          "avg_similarity": 0.41518727540969846,
+          "max_similarity": 0.4621928930282593,
+          "min_similarity": 0.37681496143341064,
+          "coverage_score": 0.0,
+          "relevance_score": 0.4302181243896484,
+          "similarities": [
+            0.4621928930282593,
+            0.4430397152900696,
+            0.40555596351623535,
+            0.3883328437805176,
+            0.37681496143341064
+          ]
+        }
+      ]
+    },
+    {
+      "chunk_size": 400,
+      "overlap_percentage": 10,
+      "overlap_tokens": 40,
+      "init_time": 45.210421085357666,
+      "total_chunks": 1832,
+      "avg_similarity": 0.5360111272335053,
+      "max_similarity": 0.7325765490531921,
+      "min_similarity": 0.31410688161849976,
+      "avg_coverage_score": 0.02,
+      "avg_relevance_score": 0.5484582118193309,
+      "query_results": [
+        {
+          "query": "How do plants transport water from roots to leaves?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5327503383159637,
+          "max_similarity": 0.5778216123580933,
+          "min_similarity": 0.4977988004684448,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5450368603070578,
+          "similarities": [
+            0.5778216123580933,
+            0.5441499948501587,
+            0.5240834951400757,
+            0.5198977887630463,
+            0.4977988004684448
+          ]
+        },
+        {
+          "query": "What is photosynthesis and how does it work?",
+          "num_chunks": 5,
+          "avg_similarity": 0.6904120862483978,
+          "max_similarity": 0.7325765490531921,
+          "min_similarity": 0.6565294861793518,
+          "coverage_score": 0.2,
+          "relevance_score": 0.7014345387617748,
+          "similarities": [
+            0.7325765490531921,
+            0.6940640211105347,
+            0.6880690157413483,
+            0.6808213591575623,
+            0.6565294861793518
+          ]
+        },
+        {
+          "query": "Explain the process of transpiration in plants",
+          "num_chunks": 5,
+          "avg_similarity": 0.5615526735782623,
+          "max_similarity": 0.5819799602031708,
+          "min_similarity": 0.5339873433113098,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5689528524875641,
+          "similarities": [
+            0.5819799602031708,
+            0.5729966163635254,
+            0.5608202815055847,
+            0.557979166507721,
+            0.5339873433113098
+          ]
+        },
+        {
+          "query": "What are the different parts of a plant cell?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5524936139583587,
+          "max_similarity": 0.5802065134048462,
+          "min_similarity": 0.5142121911048889,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5636146187782288,
+          "similarities": [
+            0.5802065134048462,
+            0.5770294070243835,
+            0.548816978931427,
+            0.5422029793262482,
+            0.5142121911048889
+          ]
+        },
+        {
+          "query": "How do plants make their own food?",
+          "num_chunks": 5,
+          "avg_similarity": 0.49422712326049806,
+          "max_similarity": 0.5866038799285889,
+          "min_similarity": 0.4607228636741638,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5127892017364502,
+          "similarities": [
+            0.5866038799285889,
+            0.48958635330200195,
+            0.47130531072616577,
+            0.4629172086715698,
+            0.4607228636741638
+          ]
+        },
+        {
+          "query": "What is the role of chlorophyll in plants?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5528153598308563,
+          "max_similarity": 0.5955772399902344,
+          "min_similarity": 0.5200859606266022,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5663860082626343,
+          "similarities": [
+            0.5955772399902344,
+            0.5726694762706757,
+            0.5556518137454987,
+            0.5200923085212708,
+            0.5200859606266022
+          ]
+        },
+        {
+          "query": "How do plants absorb water and nutrients?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5711181700229645,
+          "max_similarity": 0.6333276033401489,
+          "min_similarity": 0.525644063949585,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5883150517940522,
+          "similarities": [
+            0.6333276033401489,
+            0.5826351046562195,
+            0.5739351212978363,
+            0.5400489568710327,
+            0.525644063949585
+          ]
+        },
+        {
+          "query": "What happens during plant respiration?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5118179678916931,
+          "max_similarity": 0.5199532508850098,
+          "min_similarity": 0.506145715713501,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5140943109989166,
+          "similarities": [
+            0.5199532508850098,
+            0.5137688517570496,
+            0.5119832456111908,
+            0.5072387754917145,
+            0.506145715713501
+          ]
+        },
+        {
+          "query": "Explain the water cycle in plants",
+          "num_chunks": 5,
+          "avg_similarity": 0.5454057693481446,
+          "max_similarity": 0.5782911479473114,
+          "min_similarity": 0.5046609938144684,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5585556864738465,
+          "similarities": [
+            0.5782911479473114,
+            0.5715208053588867,
+            0.551023542881012,
+            0.5215323567390442,
+            0.5046609938144684
+          ]
+        },
+        {
+          "query": "What are stomata and what do they do?",
+          "num_chunks": 5,
+          "avg_similarity": 0.34751816987991335,
+          "max_similarity": 0.4454329013824463,
+          "min_similarity": 0.31410688161849976,
+          "coverage_score": 0.0,
+          "relevance_score": 0.36540298859278364,
+          "similarities": [
+            0.4454329013824463,
+            0.329677939414978,
+            0.3243154287338257,
+            0.3240576982498169,
+            0.31410688161849976
+          ]
+        }
+      ]
+    },
+    {
+      "chunk_size": 400,
+      "overlap_percentage": 20,
+      "overlap_tokens": 80,
+      "init_time": 45.71253800392151,
+      "total_chunks": 2062,
+      "avg_similarity": 0.5418344855308532,
+      "max_similarity": 0.6894701719284058,
+      "min_similarity": 0.31120437383651733,
+      "avg_coverage_score": 0.0,
+      "avg_relevance_score": 0.5560173823436101,
+      "query_results": [
+        {
+          "query": "How do plants transport water from roots to leaves?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5313439249992371,
+          "max_similarity": 0.5607685446739197,
+          "min_similarity": 0.5022877752780914,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5413574596246084,
+          "similarities": [
+            0.5607685446739197,
+            0.5514106452465057,
+            0.5240834951400757,
+            0.5181691646575928,
+            0.5022877752780914
+          ]
+        },
+        {
+          "query": "What is photosynthesis and how does it work?",
+          "num_chunks": 5,
+          "avg_similarity": 0.6800460636615753,
+          "max_similarity": 0.6894701719284058,
+          "min_similarity": 0.6611350774765015,
+          "coverage_score": 0.0,
+          "relevance_score": 0.6844647089640299,
+          "similarities": [
+            0.6894701719284058,
+            0.689206600189209,
+            0.6808213591575623,
+            0.6795971095561981,
+            0.6611350774765015
+          ]
+        },
+        {
+          "query": "Explain the process of transpiration in plants",
+          "num_chunks": 5,
+          "avg_similarity": 0.5484937727451324,
+          "max_similarity": 0.5644399523735046,
+          "min_similarity": 0.5316318869590759,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5538061896959942,
+          "similarities": [
+            0.5644399523735046,
+            0.5557699501514435,
+            0.5489272475242615,
+            0.5416998267173767,
+            0.5316318869590759
+          ]
+        },
+        {
+          "query": "What are the different parts of a plant cell?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5573791921138763,
+          "max_similarity": 0.5787370204925537,
+          "min_similarity": 0.5392903387546539,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5649058957894644,
+          "similarities": [
+            0.5787370204925537,
+            0.5770294070243835,
+            0.548816978931427,
+            0.5430222153663635,
+            0.5392903387546539
+          ]
+        },
+        {
+          "query": "How do plants make their own food?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5027675211429596,
+          "max_similarity": 0.5866038799285889,
+          "min_similarity": 0.45348048210144043,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5249974012374877,
+          "similarities": [
+            0.5866038799285889,
+            0.529042512178421,
+            0.48286962509155273,
+            0.4618411064147949,
+            0.45348048210144043
+          ]
+        },
+        {
+          "query": "What is the role of chlorophyll in plants?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5703431725502014,
+          "max_similarity": 0.6760295629501343,
+          "min_similarity": 0.5352752208709717,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5898153722286225,
+          "similarities": [
+            0.6760295629501343,
+            0.5536583662033081,
+            0.543668657541275,
+            0.543084055185318,
+            0.5352752208709717
+          ]
+        },
+        {
+          "query": "How do plants absorb water and nutrients?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5785237550735474,
+          "max_similarity": 0.6016512811183929,
+          "min_similarity": 0.5494131147861481,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5862254460652668,
+          "similarities": [
+            0.6016512811183929,
+            0.58498415350914,
+            0.5826351046562195,
+            0.5739351212978363,
+            0.5494131147861481
+          ]
+        },
+        {
+          "query": "What happens during plant respiration?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5223895490169526,
+          "max_similarity": 0.5903858244419098,
+          "min_similarity": 0.48949652910232544,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5382862548033397,
+          "similarities": [
+            0.5903858244419098,
+            0.5348098874092102,
+            0.4991176128387451,
+            0.498137891292572,
+            0.48949652910232544
+          ]
+        },
+        {
+          "query": "Explain the water cycle in plants",
+          "num_chunks": 5,
+          "avg_similarity": 0.5634299337863922,
+          "max_similarity": 0.6724479496479034,
+          "min_similarity": 0.506606936454773,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5900284111499787,
+          "similarities": [
+            0.6724479496479034,
+            0.577183187007904,
+            0.551023542881012,
+            0.5098880529403687,
+            0.506606936454773
+          ]
+        },
+        {
+          "query": "What are stomata and what do they do?",
+          "num_chunks": 5,
+          "avg_similarity": 0.36362797021865845,
+          "max_similarity": 0.44900476932525635,
+          "min_similarity": 0.31120437383651733,
+          "coverage_score": 0.0,
+          "relevance_score": 0.38628668387730913,
+          "similarities": [
+            0.44900476932525635,
+            0.3883328437805176,
+            0.3455449342727661,
+            0.32405292987823486,
+            0.31120437383651733
+          ]
+        }
+      ]
+    },
+    {
+      "chunk_size": 400,
+      "overlap_percentage": 30,
+      "overlap_tokens": 120,
+      "init_time": 46.88090968132019,
+      "total_chunks": 2357,
+      "avg_similarity": 0.544660113453865,
+      "max_similarity": 0.7037028968334198,
+      "min_similarity": 0.32441258430480957,
+      "avg_coverage_score": 0.04,
+      "avg_relevance_score": 0.5570057421922684,
+      "query_results": [
+        {
+          "query": "How do plants transport water from roots to leaves?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5346436977386475,
+          "max_similarity": 0.5515019297599792,
+          "min_similarity": 0.5075855255126953,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5419534881909688,
+          "similarities": [
+            0.5515019297599792,
+            0.5458975434303284,
+            0.5441499948501587,
+            0.5240834951400757,
+            0.5075855255126953
+          ]
+        },
+        {
+          "query": "What is photosynthesis and how does it work?",
+          "num_chunks": 5,
+          "avg_similarity": 0.6757610142230988,
+          "max_similarity": 0.7037028968334198,
+          "min_similarity": 0.652538388967514,
+          "coverage_score": 0.2,
+          "relevance_score": 0.684427531560262,
+          "similarities": [
+            0.7037028968334198,
+            0.6925864815711975,
+            0.6650595664978027,
+            0.6649177372455597,
+            0.652538388967514
+          ]
+        },
+        {
+          "query": "Explain the process of transpiration in plants",
+          "num_chunks": 5,
+          "avg_similarity": 0.5456423819065094,
+          "max_similarity": 0.5888226628303528,
+          "min_similarity": 0.5285599827766418,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5545127093791961,
+          "similarities": [
+            0.5888226628303528,
+            0.5441614389419556,
+            0.5350359380245209,
+            0.5316318869590759,
+            0.5285599827766418
+          ]
+        },
+        {
+          "query": "What are the different parts of a plant cell?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5811770677566528,
+          "max_similarity": 0.6206653714179993,
+          "min_similarity": 0.5416810512542725,
+          "coverage_score": 0.0,
+          "relevance_score": 0.596316651503245,
+          "similarities": [
+            0.6206653714179993,
+            0.6162287592887878,
+            0.5802065134048462,
+            0.5471036434173584,
+            0.5416810512542725
+          ]
+        },
+        {
+          "query": "How do plants make their own food?",
+          "num_chunks": 5,
+          "avg_similarity": 0.49614371061325074,
+          "max_similarity": 0.5866038799285889,
+          "min_similarity": 0.4607228636741638,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5144916812578837,
+          "similarities": [
+            0.5866038799285889,
+            0.48958635330200195,
+            0.4776766300201416,
+            0.4661288261413574,
+            0.4607228636741638
+          ]
+        },
+        {
+          "query": "What is the role of chlorophyll in plants?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5992966532707215,
+          "max_similarity": 0.7029483914375305,
+          "min_similarity": 0.5631074607372284,
+          "coverage_score": 0.2,
+          "relevance_score": 0.6198302149772644,
+          "similarities": [
+            0.7029483914375305,
+            0.5955772399902344,
+            0.5675944983959198,
+            0.5672556757926941,
+            0.5631074607372284
+          ]
+        },
+        {
+          "query": "How do plants absorb water and nutrients?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5719009399414062,
+          "max_similarity": 0.5879042744636536,
+          "min_similarity": 0.5573748350143433,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5776368478933971,
+          "similarities": [
+            0.5879042744636536,
+            0.5826351046562195,
+            0.5739351212978363,
+            0.5576553642749786,
+            0.5573748350143433
+          ]
+        },
+        {
+          "query": "What happens during plant respiration?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5262969911098481,
+          "max_similarity": 0.5739467442035675,
+          "min_similarity": 0.4991176128387451,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5391754686832428,
+          "similarities": [
+            0.5739467442035675,
+            0.543270468711853,
+            0.5153985619544983,
+            0.49975156784057617,
+            0.4991176128387451
+          ]
+        },
+        {
+          "query": "Explain the water cycle in plants",
+          "num_chunks": 5,
+          "avg_similarity": 0.5606279373168945,
+          "max_similarity": 0.6070984601974487,
+          "min_similarity": 0.5064892470836639,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5757864753405254,
+          "similarities": [
+            0.6070984601974487,
+            0.577183187007904,
+            0.561345249414444,
+            0.551023542881012,
+            0.5064892470836639
+          ]
+        },
+        {
+          "query": "What are stomata and what do they do?",
+          "num_chunks": 5,
+          "avg_similarity": 0.35511074066162107,
+          "max_similarity": 0.3883328437805176,
+          "min_similarity": 0.32441258430480957,
+          "coverage_score": 0.0,
+          "relevance_score": 0.36592635313669836,
+          "similarities": [
+            0.3883328437805176,
+            0.37681496143341064,
+            0.3435720205307007,
+            0.342421293258667,
+            0.32441258430480957
+          ]
+        }
+      ]
+    },
+    {
+      "chunk_size": 500,
+      "overlap_percentage": 10,
+      "overlap_tokens": 50,
+      "init_time": 42.126818895339966,
+      "total_chunks": 1467,
+      "avg_similarity": 0.5320921862125396,
+      "max_similarity": 0.6786212921142578,
+      "min_similarity": 0.3234466314315796,
+      "avg_coverage_score": 0.0,
+      "avg_relevance_score": 0.5450564140081405,
+      "query_results": [
+        {
+          "query": "How do plants transport water from roots to leaves?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5241081893444062,
+          "max_similarity": 0.5858553647994995,
+          "min_similarity": 0.49290549755096436,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5382538179556529,
+          "similarities": [
+            0.5858553647994995,
+            0.5240834951400757,
+            0.5198977887630463,
+            0.4977988004684448,
+            0.49290549755096436
+          ]
+        },
+        {
+          "query": "What is photosynthesis and how does it work?",
+          "num_chunks": 5,
+          "avg_similarity": 0.6659430503845215,
+          "max_similarity": 0.6786212921142578,
+          "min_similarity": 0.6565294861793518,
+          "coverage_score": 0.0,
+          "relevance_score": 0.6698121905326843,
+          "similarities": [
+            0.6786212921142578,
+            0.6708958148956299,
+            0.6666263341903687,
+            0.6570423245429993,
+            0.6565294861793518
+          ]
+        },
+        {
+          "query": "Explain the process of transpiration in plants",
+          "num_chunks": 5,
+          "avg_similarity": 0.5501287162303925,
+          "max_similarity": 0.5773364007472992,
+          "min_similarity": 0.5316318869590759,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5583951274553934,
+          "similarities": [
+            0.5773364007472992,
+            0.5665744841098785,
+            0.5411134660243988,
+            0.5339873433113098,
+            0.5316318869590759
+          ]
+        },
+        {
+          "query": "What are the different parts of a plant cell?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5387473225593566,
+          "max_similarity": 0.5773756504058838,
+          "min_similarity": 0.513611763715744,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5487654348214468,
+          "similarities": [
+            0.5773756504058838,
+            0.5480945408344269,
+            0.529304027557373,
+            0.5253506302833557,
+            0.513611763715744
+          ]
+        },
+        {
+          "query": "How do plants make their own food?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5042597770690918,
+          "max_similarity": 0.5866038799285889,
+          "min_similarity": 0.46409571170806885,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5220392783482869,
+          "similarities": [
+            0.5866038799285889,
+            0.5024338364601135,
+            0.4874078035354614,
+            0.4807576537132263,
+            0.46409571170806885
+          ]
+        },
+        {
+          "query": "What is the role of chlorophyll in plants?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5804480016231537,
+          "max_similarity": 0.6242374181747437,
+          "min_similarity": 0.5556518137454987,
+          "coverage_score": 0.0,
+          "relevance_score": 0.590903796752294,
+          "similarities": [
+            0.6242374181747437,
+            0.5851179361343384,
+            0.5717806220054626,
+            0.5654522180557251,
+            0.5556518137454987
+          ]
+        },
+        {
+          "query": "How do plants absorb water and nutrients?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5521426200866699,
+          "max_similarity": 0.6370558142662048,
+          "min_similarity": 0.5117562413215637,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5728092928727468,
+          "similarities": [
+            0.6370558142662048,
+            0.5739351212978363,
+            0.5234317481517792,
+            0.5145341753959656,
+            0.5117562413215637
+          ]
+        },
+        {
+          "query": "What happens during plant respiration?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5131151616573334,
+          "max_similarity": 0.5469001531600952,
+          "min_similarity": 0.4917546510696411,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5215813974539439,
+          "similarities": [
+            0.5469001531600952,
+            0.5158201456069946,
+            0.5119832456111908,
+            0.4991176128387451,
+            0.4917546510696411
+          ]
+        },
+        {
+          "query": "Explain the water cycle in plants",
+          "num_chunks": 5,
+          "avg_similarity": 0.5202906250953674,
+          "max_similarity": 0.5496355891227722,
+          "min_similarity": 0.4900839924812317,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5316398898760478,
+          "similarities": [
+            0.5496355891227722,
+            0.5456684827804565,
+            0.5215323567390442,
+            0.4945327043533325,
+            0.4900839924812317
+          ]
+        },
+        {
+          "query": "What are stomata and what do they do?",
+          "num_chunks": 5,
+          "avg_similarity": 0.3717383980751038,
+          "max_similarity": 0.48187315464019775,
+          "min_similarity": 0.3234466314315796,
+          "coverage_score": 0.0,
+          "relevance_score": 0.39636391401290894,
+          "similarities": [
+            0.48187315464019775,
+            0.3765873908996582,
+            0.35272711515426636,
+            0.3240576982498169,
+            0.3234466314315796
+          ]
+        }
+      ]
+    },
+    {
+      "chunk_size": 500,
+      "overlap_percentage": 20,
+      "overlap_tokens": 100,
+      "init_time": 45.73569703102112,
+      "total_chunks": 1649,
+      "avg_similarity": 0.5261626356840133,
+      "max_similarity": 0.689206600189209,
+      "min_similarity": 0.32405292987823486,
+      "avg_coverage_score": 0.0,
+      "avg_relevance_score": 0.5375439389546712,
+      "query_results": [
+        {
+          "query": "How do plants transport water from roots to leaves?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5143708229064942,
+          "max_similarity": 0.5240834951400757,
+          "min_similarity": 0.4859110116958618,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5198353866736094,
+          "similarities": [
+            0.5240834951400757,
+            0.5237926542758942,
+            0.5198977887630463,
+            0.5181691646575928,
+            0.4859110116958618
+          ]
+        },
+        {
+          "query": "What is photosynthesis and how does it work?",
+          "num_chunks": 5,
+          "avg_similarity": 0.667742657661438,
+          "max_similarity": 0.689206600189209,
+          "min_similarity": 0.6384073495864868,
+          "coverage_score": 0.0,
+          "relevance_score": 0.6759431600570679,
+          "similarities": [
+            0.689206600189209,
+            0.6779385209083557,
+            0.6766313314437866,
+            0.6565294861793518,
+            0.6384073495864868
+          ]
+        },
+        {
+          "query": "Explain the process of transpiration in plants",
+          "num_chunks": 5,
+          "avg_similarity": 0.558447140455246,
+          "max_similarity": 0.5933682918548584,
+          "min_similarity": 0.5408985316753387,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5667656600475312,
+          "similarities": [
+            0.5933682918548584,
+            0.5644399523735046,
+            0.5489272475242615,
+            0.5446016788482666,
+            0.5408985316753387
+          ]
+        },
+        {
+          "query": "What are the different parts of a plant cell?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5261486887931823,
+          "max_similarity": 0.5690004229545593,
+          "min_similarity": 0.5042905807495117,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5358788629372914,
+          "similarities": [
+            0.5690004229545593,
+            0.5259224772453308,
+            0.5221404135227203,
+            0.5093895494937897,
+            0.5042905807495117
+          ]
+        },
+        {
+          "query": "How do plants make their own food?",
+          "num_chunks": 5,
+          "avg_similarity": 0.48268216848373413,
+          "max_similarity": 0.5866038799285889,
+          "min_similarity": 0.45348048210144043,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5009111245473227,
+          "similarities": [
+            0.5866038799285889,
+            0.4607228636741638,
+            0.45906829833984375,
+            0.4535353183746338,
+            0.45348048210144043
+          ]
+        },
+        {
+          "query": "What is the role of chlorophyll in plants?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5512543082237243,
+          "max_similarity": 0.5844922363758087,
+          "min_similarity": 0.5189061164855957,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5639353175957998,
+          "similarities": [
+            0.5844922363758087,
+            0.5791288614273071,
+            0.5536583662033081,
+            0.5200859606266022,
+            0.5189061164855957
+          ]
+        },
+        {
+          "query": "How do plants absorb water and nutrients?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5464050352573395,
+          "max_similarity": 0.5739351212978363,
+          "min_similarity": 0.511357307434082,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5565796097119649,
+          "similarities": [
+            0.5739351212978363,
+            0.5623913109302521,
+            0.5494131147861481,
+            0.5349283218383789,
+            0.511357307434082
+          ]
+        },
+        {
+          "query": "What happens during plant respiration?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5254402339458466,
+          "max_similarity": 0.5401169657707214,
+          "min_similarity": 0.5032379031181335,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5322276552518208,
+          "similarities": [
+            0.5401169657707214,
+            0.5400364398956299,
+            0.5318266153335571,
+            0.5119832456111908,
+            0.5032379031181335
+          ]
+        },
+        {
+          "query": "Explain the water cycle in plants",
+          "num_chunks": 5,
+          "avg_similarity": 0.5381404042243958,
+          "max_similarity": 0.6071984171867371,
+          "min_similarity": 0.506606936454773,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5550815502802531,
+          "similarities": [
+            0.6071984171867371,
+            0.5598392486572266,
+            0.5101523995399475,
+            0.5069050192832947,
+            0.506606936454773
+          ]
+        },
+        {
+          "query": "What are stomata and what do they do?",
+          "num_chunks": 5,
+          "avg_similarity": 0.3509948968887329,
+          "max_similarity": 0.44900476932525635,
+          "min_similarity": 0.32405292987823486,
+          "coverage_score": 0.0,
+          "relevance_score": 0.36828106244405107,
+          "similarities": [
+            0.44900476932525635,
+            0.3334465026855469,
+            0.32441258430480957,
+            0.3240576982498169,
+            0.32405292987823486
+          ]
+        }
+      ]
+    },
+    {
+      "chunk_size": 500,
+      "overlap_percentage": 30,
+      "overlap_tokens": 150,
+      "init_time": 45.06528377532959,
+      "total_chunks": 1885,
+      "avg_similarity": 0.5349124759435654,
+      "max_similarity": 0.7256366610527039,
+      "min_similarity": 0.3240576982498169,
+      "avg_coverage_score": 0.04,
+      "avg_relevance_score": 0.5481789845228195,
+      "query_results": [
+        {
+          "query": "How do plants transport water from roots to leaves?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5620483517646789,
+          "max_similarity": 0.6276525855064392,
+          "min_similarity": 0.5227576494216919,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5795302172501883,
+          "similarities": [
+            0.6276525855064392,
+            0.5765216052532196,
+            0.5592264235019684,
+            0.5240834951400757,
+            0.5227576494216919
+          ]
+        },
+        {
+          "query": "What is photosynthesis and how does it work?",
+          "num_chunks": 5,
+          "avg_similarity": 0.686065274477005,
+          "max_similarity": 0.7256366610527039,
+          "min_similarity": 0.6384073495864868,
+          "coverage_score": 0.4,
+          "relevance_score": 0.7006503244241079,
+          "similarities": [
+            0.7256366610527039,
+            0.7093766927719116,
+            0.69184610247612,
+            0.6650595664978027,
+            0.6384073495864868
+          ]
+        },
+        {
+          "query": "Explain the process of transpiration in plants",
+          "num_chunks": 5,
+          "avg_similarity": 0.5381057262420654,
+          "max_similarity": 0.5660139322280884,
+          "min_similarity": 0.5122430920600891,
+          "coverage_score": 0.0,
+          "relevance_score": 0.547254753112793,
+          "similarities": [
+            0.5660139322280884,
+            0.5551667213439941,
+            0.5316318869590759,
+            0.5254729986190796,
+            0.5122430920600891
+          ]
+        },
+        {
+          "query": "What are the different parts of a plant cell?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5624587297439575,
+          "max_similarity": 0.6200410723686218,
+          "min_similarity": 0.5253506302833557,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5780686100323995,
+          "similarities": [
+            0.6200410723686218,
+            0.581874668598175,
+            0.5479199290275574,
+            0.5371073484420776,
+            0.5253506302833557
+          ]
+        },
+        {
+          "query": "How do plants make their own food?",
+          "num_chunks": 5,
+          "avg_similarity": 0.48139309883117676,
+          "max_similarity": 0.5866038799285889,
+          "min_similarity": 0.45208221673965454,
+          "coverage_score": 0.0,
+          "relevance_score": 0.4998121460278829,
+          "similarities": [
+            0.5866038799285889,
+            0.4607228636741638,
+            0.45407605171203613,
+            0.45348048210144043,
+            0.45208221673965454
+          ]
+        },
+        {
+          "query": "What is the role of chlorophyll in plants?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5477405726909638,
+          "max_similarity": 0.6015755534172058,
+          "min_similarity": 0.5102742612361908,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5627821783224741,
+          "similarities": [
+            0.6015755534172058,
+            0.5631074607372284,
+            0.5436596274375916,
+            0.5200859606266022,
+            0.5102742612361908
+          ]
+        },
+        {
+          "query": "How do plants absorb water and nutrients?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5814292907714844,
+          "max_similarity": 0.6453592777252197,
+          "min_similarity": 0.5357508063316345,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5985338588555653,
+          "similarities": [
+            0.6453592777252197,
+            0.5947264134883881,
+            0.5739351212978363,
+            0.5573748350143433,
+            0.5357508063316345
+          ]
+        },
+        {
+          "query": "What happens during plant respiration?",
+          "num_chunks": 5,
+          "avg_similarity": 0.5171641349792481,
+          "max_similarity": 0.534389078617096,
+          "min_similarity": 0.4991176128387451,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5238172709941865,
+          "similarities": [
+            0.534389078617096,
+            0.5296487808227539,
+            0.522270530462265,
+            0.5003946721553802,
+            0.4991176128387451
+          ]
+        },
+        {
+          "query": "Explain the water cycle in plants",
+          "num_chunks": 5,
+          "avg_similarity": 0.5328256666660309,
+          "max_similarity": 0.5609065890312195,
+          "min_similarity": 0.5038402676582336,
+          "coverage_score": 0.0,
+          "relevance_score": 0.5430948893229166,
+          "similarities": [
+            0.5609065890312195,
+            0.5473440289497375,
+            0.5445991158485413,
+            0.5074383318424225,
+            0.5038402676582336
+          ]
+        },
+        {
+          "query": "What are stomata and what do they do?",
+          "num_chunks": 5,
+          "avg_similarity": 0.33989391326904295,
+          "max_similarity": 0.37681496143341064,
+          "min_similarity": 0.3240576982498169,
+          "coverage_score": 0.0,
+          "relevance_score": 0.3482455968856812,
+          "similarities": [
+            0.37681496143341064,
+            0.3441733121871948,
+            0.3300110101699829,
+            0.32441258430480957,
+            0.3240576982498169
+          ]
+        }
+      ]
+    }
+  ],
+  "analysis": {
+    "best_configuration": {
+      "chunk_size": 200,
+      "overlap_percentage": 30,
+      "overlap_tokens": 60,
+      "composite_score": 0.42993062818050387,
+      "avg_similarity": 0.5748750430345535,
+      "avg_coverage_score": 0.08,
+      "avg_relevance_score": 0.5866020365556082,
+      "total_chunks": 4711,
+      "init_time": 61.941925048828125
+    },
+    "all_results": [
+      {
+        "chunk_size": 150,
+        "overlap_percentage": 10,
+        "overlap_tokens": 15,
+        "total_chunks": 4885,
+        "avg_similarity": 0.5813873791694641,
+        "avg_coverage_score": 0.02,
+        "avg_relevance_score": 0.5927548825740815,
+        "init_time": 62.96101665496826,
+        "composite_score": 0.41638141644001014
+      },
+      {
+        "chunk_size": 200,
+        "overlap_percentage": 10,
+        "overlap_tokens": 20,
+        "total_chunks": 3664,
+        "avg_similarity": 0.5553156608343124,
+        "avg_coverage_score": 0.02,
+        "avg_relevance_score": 0.5659207473198574,
+        "init_time": 57.4631826877594,
+        "composite_score": 0.3979024885296822
+      },
+      {
+        "chunk_size": 200,
+        "overlap_percentage": 20,
+        "overlap_tokens": 40,
+        "total_chunks": 4122,
+        "avg_similarity": 0.5629176104068756,
+        "avg_coverage_score": 0.0,
+        "avg_relevance_score": 0.5737945443391801,
+        "init_time": 59.22825288772583,
+        "composite_score": 0.39730540746450427
+      },
+      {
+        "chunk_size": 200,
+        "overlap_percentage": 30,
+        "overlap_tokens": 60,
+        "total_chunks": 4711,
+        "avg_similarity": 0.5748750430345535,
+        "avg_coverage_score": 0.08,
+        "avg_relevance_score": 0.5866020365556082,
+        "init_time": 61.941925048828125,
+        "composite_score": 0.42993062818050387
+      },
+      {
+        "chunk_size": 400,
+        "overlap_percentage": 10,
+        "overlap_tokens": 40,
+        "total_chunks": 1832,
+        "avg_similarity": 0.5360111272335053,
+        "avg_coverage_score": 0.02,
+        "avg_relevance_score": 0.5484582118193309,
+        "init_time": 45.210421085357666,
+        "composite_score": 0.3849419144392014
+      },
+      {
+        "chunk_size": 400,
+        "overlap_percentage": 20,
+        "overlap_tokens": 80,
+        "total_chunks": 2062,
+        "avg_similarity": 0.5418344855308532,
+        "avg_coverage_score": 0.0,
+        "avg_relevance_score": 0.5560173823436101,
+        "init_time": 45.71253800392151,
+        "composite_score": 0.3835390089154243
+      },
+      {
+        "chunk_size": 400,
+        "overlap_percentage": 30,
+        "overlap_tokens": 120,
+        "total_chunks": 2357,
+        "avg_similarity": 0.544660113453865,
+        "avg_coverage_score": 0.04,
+        "avg_relevance_score": 0.5570057421922684,
+        "init_time": 46.88090968132019,
+        "composite_score": 0.39696576803922656
+      },
+      {
+        "chunk_size": 500,
+        "overlap_percentage": 10,
+        "overlap_tokens": 50,
+        "total_chunks": 1467,
+        "avg_similarity": 0.5320921862125396,
+        "avg_coverage_score": 0.0,
+        "avg_relevance_score": 0.5450564140081405,
+        "init_time": 42.126818895339966,
+        "composite_score": 0.376353798687458
+      },
+      {
+        "chunk_size": 500,
+        "overlap_percentage": 20,
+        "overlap_tokens": 100,
+        "total_chunks": 1649,
+        "avg_similarity": 0.5261626356840133,
+        "avg_coverage_score": 0.0,
+        "avg_relevance_score": 0.5375439389546712,
+        "init_time": 45.73569703102112,
+        "composite_score": 0.3717282359600067
+      },
+      {
+        "chunk_size": 500,
+        "overlap_percentage": 30,
+        "overlap_tokens": 150,
+        "total_chunks": 1885,
+        "avg_similarity": 0.5349124759435654,
+        "avg_coverage_score": 0.04,
+        "avg_relevance_score": 0.5481789845228195,
+        "init_time": 45.06528377532959,
+        "composite_score": 0.3904186857342721
+      }
+    ],
+    "summary_stats": {
+      "total_experiments": 10,
+      "avg_composite_score": 0.39454673523902895,
+      "std_composite_score": 0.017750200371226293,
+      "best_similarity": 0.5813873791694641,
+      "best_coverage": 0.08,
+      "best_relevance": 0.5927548825740815
+    }
+  }
+}

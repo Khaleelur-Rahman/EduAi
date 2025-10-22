@@ -137,8 +137,30 @@ async def whatsapp_webhook(
             logger.error("Invalid phone number received")
             raise HTTPException(status_code=400, detail="Invalid phone number")
         
+        # Special handling for Twilio WhatsApp Sandbox opt-in message: "join <code>"
+        # Twilio sends its own confirmation for this and may ignore our TwiML reply.
+        # To ensure users see our welcome immediately, send a proactive message
+        # via the REST API when we detect the join message.
+        if Body.strip().lower().startswith("join ") and TWILIO_CLIENT and TWILIO_PHONE_NUMBER:
+            logger.info("Detected sandbox join message. Sending proactive welcome.")
+            try:
+                # Use existing handler to generate the appropriate first-time welcome
+                response_text = process_whatsapp_message(db, phone_number, Body)
+
+                TWILIO_CLIENT.messages.create(
+                    body=response_text,
+                    from_=f"whatsapp:{TWILIO_PHONE_NUMBER}",
+                    to=f"whatsapp:{phone_number}"
+                )
+                # Return empty TwiML so Twilio can still send its sandbox confirmation
+                return Response(content=str(MessagingResponse()), media_type="application/xml")
+            except Exception as send_err:
+                logger.error(f"Failed to send proactive welcome: {str(send_err)}")
+                # Fall through to normal flow
+
+        # Normal flow for all other messages
         response_text = process_whatsapp_message(db, phone_number, Body)
-        
+
         twiml_response = MessagingResponse()
         twiml_response.message(response_text)
         

@@ -458,8 +458,11 @@ Try asking me again, or ask for help with a specific part of {topic} that intere
 
 llm_service = LLMService()
 
-def generate_lesson(topic: str, age_group: int, user_name: str = "") -> str:
-    return llm_service.generate_lesson(topic, age_group, user_name)
+def generate_lesson(topic: str, age_group: int, user_name: str = "", 
+                   is_continuation: bool = False, previous_content: str = None) -> str:
+    return llm_service.generate_lesson(topic, age_group, user_name, 
+                                      is_continuation=is_continuation, 
+                                      previous_content=previous_content)
 
 def initialize_llm():
     llm_service.initialize()

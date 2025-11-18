@@ -170,24 +170,48 @@ Make sure the questions test understanding of the key concepts in this lesson co
     def check_answers(self, questions: List[Dict[str, Any]], user_answers: str) -> Tuple[int, str]:
         """Check user answers and provide feedback"""
         try:
-            answer_pairs = []
+            # Parse answers and map them to question numbers
+            answer_dict = {}  # Maps question number (int) to answer string
             # Use regex to find all answer patterns regardless of separator (comma, space, newline)
-            pairs = re.findall(r'\d+[A-D]|\d+(?:True|False)', user_answers, re.IGNORECASE)
+            # Pattern matches: 1A, 2B, 3True, 3False, 3T, 3F, etc.
+            pairs = re.findall(r'\d+[A-DTtFf]|\d+(?:True|False)', user_answers, re.IGNORECASE)
             
             for pair in pairs:
                 pair = pair.strip()
-                if re.match(r'\d+[A-D]', pair) or re.match(r'\d+(True|False)', pair, re.IGNORECASE):
-                    answer_pairs.append(pair)
+                # Extract question number and answer
+                # Handle both full words (True/False) and abbreviations (T/F)
+                match = re.match(r'(\d+)([A-D]|True|False|T|F)', pair, re.IGNORECASE)
+                if match:
+                    q_num = int(match.group(1))
+                    answer = match.group(2).upper()
+                    # Normalize T/F to True/False for consistency
+                    if answer == 'T':
+                        answer = 'TRUE'
+                    elif answer == 'F':
+                        answer = 'FALSE'
+                    answer_dict[q_num] = answer
             
-            if len(answer_pairs) != len(questions):
+            if len(answer_dict) != len(questions):
                 return 0, "Please provide answers for all questions in the format: 1A, 2B, 3True"
+            
+            logger.info(f"Parsed answers: {answer_dict} for {len(questions)} questions")
             
             correct_count = 0
             feedback = "📝 *Quiz Results:*\n\n"
             
-            for i, (question, answer_pair) in enumerate(zip(questions, answer_pairs)):
+            # Match answers to questions by question number
+            for i, question in enumerate(questions):
                 q_num = i + 1
-                user_answer = answer_pair[1:].strip().upper()  # Remove question number
+                
+                # Get the user's answer for this question number
+                if q_num not in answer_dict:
+                    feedback += f"❌ *Q{q_num}:* No answer provided.\n\n"
+                    continue
+                
+                user_answer = answer_dict[q_num]
+                
+                # Log for debugging
+                logger.debug(f"Q{q_num}: User answer={user_answer}, Question={question.get('question', '')[:50]}...")
 
                 q_type = question.get('type', 'multiple_choice')
                 options = [str(o) for o in question.get('options', [])]

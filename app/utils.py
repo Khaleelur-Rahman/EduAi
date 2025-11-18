@@ -3,7 +3,42 @@ import json
 from typing import List, Dict, Any, Optional
 
 
+def clean_whatsapp_formatting(text: str) -> str:
+    """Clean up formatting issues in WhatsApp messages."""
+    # Replace double asterisks with single asterisks (WhatsApp uses single * for bold)
+    # Handle cases like **text** or **text* or *text**
+    text = re.sub(r'\*\*([^*]+)\*\*', r'*\1*', text)  # **text** -> *text*
+    text = re.sub(r'\*\*([^*]+)\*', r'*\1*', text)   # **text* -> *text*
+    text = re.sub(r'\*([^*]+)\*\*', r'*\1*', text)   # *text** -> *text*
+    
+    # Remove standalone double asterisks
+    text = re.sub(r'\*\*+', '', text)
+    
+    # Remove "Try This at Home" sections that are generic/unrelated
+    # Match the pattern and everything until the next section (marked by _Type or double newline)
+    text = re.sub(
+        r'[\*\s]*Try This at Home[!*]*[\*\s]*.*?(?=\n\n|\n_|_Type|$)', 
+        '', 
+        text, 
+        flags=re.IGNORECASE | re.DOTALL
+    )
+    text = re.sub(
+        r'[\*\s]*Try This[!*]*[\*\s]*.*?(?=\n\n|\n_|_Type|$)', 
+        '', 
+        text, 
+        flags=re.IGNORECASE | re.DOTALL
+    )
+    
+    # Clean up any remaining formatting artifacts
+    text = re.sub(r'\*{3,}', '*', text)  # Replace 3+ asterisks with single
+    text = re.sub(r'\s+\*+\s+', ' ', text)  # Remove isolated asterisks with spaces
+    text = re.sub(r'\n{3,}', '\n\n', text)  # Remove excessive newlines
+    
+    return text.strip()
+
 def format_for_whatsapp(text: str, age_group: int) -> str:
+    # First clean up formatting issues
+    text = clean_whatsapp_formatting(text)
     
     formatted_text = apply_whatsapp_formatting(text)
 
@@ -111,7 +146,7 @@ def validate_learning_mode(mode_input: str) -> Optional[str]:
 
 def get_help_message(age_group: int) -> str:
     base_commands = """
-🤖 *WhatsApp AI Tutor Commands*
+🤖 *EduBot Commands*
 
 📚 `/lesson <topic>` - Get a lesson on any topic
 ➡️ `/next` - Continue to next part of lesson

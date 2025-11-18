@@ -227,7 +227,7 @@ class RAGService:
         # Step 5: Sort by combined score (descending)
         ranked_results = sorted(results_with_scores, key=lambda x: x[2], reverse=True)
 
-        # Step 6: Convert to dictionary format and return top-k final results
+        # Step 6: Convert to dictionary and return top-k final results
         chunks = []
         for doc, metadata, similarity_score in ranked_results[:limit]:
             chunks.append({
@@ -310,7 +310,8 @@ class RAGService:
             return None
     
     def create_rag_lesson_prompt(self, topic: str, retrieved_chunks: List[Dict[str, Any]], 
-                                age_group: int, user_name: str = "") -> Tuple[str, str]:
+                                age_group: int, user_name: str = "", 
+                                is_continuation: bool = False, previous_content: str = None) -> Tuple[str, str]:
         """Create a prompt for generating a RAG-based lesson."""
         
         if age_group <= 8:
@@ -326,7 +327,49 @@ class RAGService:
         
         context = "\n".join(context_parts)
         
-        system_prompt = f"""You are an expert science teacher for children aged {age_group} years old.
+        if is_continuation and previous_content:
+            # Continuation lesson - reference previous content, no example at start
+            system_prompt = f"""You are an expert science teacher for children aged {age_group} years old.
+You are continuing a lesson on {topic}. The student has already learned the previous part.
+
+Instructions:
+- Topic: {topic} (continuation)
+- Age group: {age_group} years old
+- Length: Keep it concise (under 1400 characters total)
+- Style: {style_guide}
+- Use the provided educational content as your source of information
+- Make sure all facts are accurate and age-appropriate
+
+CONTINUATION STRUCTURE:
+- Start by briefly referencing what was covered in the previous part (1-2 sentences)
+- Then continue with new information from the provided content
+- Do NOT repeat examples from the previous part
+- Do NOT start with a new example - jump straight into continuing the explanation
+- Make it feel like a natural conversation continuation
+
+CRITICAL FORMATTING RULES:
+- Use single asterisk *text* for bold (WhatsApp format), NOT double asterisks **
+- Do NOT include "Try This at Home" or similar activity sections unless they directly relate to the topic
+- Focus on clear explanations and examples, not generic activities
+- Do not add unnecessary formatting or redundant bold markers
+
+Important: 
+- Base your lesson on the provided educational content. Do not make up facts that aren't in the source material.
+- Keep the response under 1400 characters to ensure WhatsApp delivery.
+- Make it conversational and connected to what the student just learned."""
+
+            user_prompt = f"""Continue teaching about {topic}. 
+
+Previous part of the lesson:
+{previous_content[:500]}
+
+New educational content to use:
+{context}
+
+Continue the lesson naturally, referencing what was just covered and building on it!"""
+        else:
+            # New lesson - standard structure
+            system_prompt = f"""You are an expert science teacher for children aged {age_group} years old.
 Your goal is to create an engaging, accurate science lesson using the provided educational content.
 
 Instructions:
@@ -338,11 +381,17 @@ Instructions:
 - Make sure all facts are accurate and age-appropriate
 - Structure: Brief introduction, key explanation and a fun example
 
+CRITICAL FORMATTING RULES:
+- Use single asterisk *text* for bold (WhatsApp format), NOT double asterisks **
+- Do NOT include "Try This at Home" or similar activity sections unless they directly relate to the topic
+- Focus on clear explanations and examples, not generic activities
+- Do not add unnecessary formatting or redundant bold markers
+
 Important: 
 - Base your lesson on the provided educational content. Do not make up facts that aren't in the source material.
 - Keep the response under 1400 characters to ensure WhatsApp delivery."""
 
-        user_prompt = f"""Please teach me about {topic} using this educational content:
+            user_prompt = f"""Please teach me about {topic} using this educational content:
 
 {context}
 
@@ -357,13 +406,22 @@ def initialize_rag():
     rag_service.initialize()
 
 def get_rag_lesson(topic: str, age_group: int, user_name: str = "", 
-                  current_chunk_id: str = None) -> Tuple[str, str, Optional[str]]:
+                  current_chunk_id: str = None, previous_content: str = None) -> Tuple[str, str, Optional[str]]:
     """
     Generate a RAG-based lesson for the given topic.
     Returns (system_prompt, user_prompt, chunk_id) for lesson generation.
+    
+    Args:
+        topic: The lesson topic
+        age_group: Age of the student
+        user_name: Name of the student
+        current_chunk_id: If continuing a lesson, the current chunk ID
+        previous_content: If continuing a lesson, the previous lesson content
     """
     if not rag_service._initialized:
         rag_service.initialize()
+    
+    is_continuation = current_chunk_id is not None
     
     # If continuing a lesson, try to get next chunk
     if current_chunk_id:
@@ -381,10 +439,11 @@ def get_rag_lesson(topic: str, age_group: int, user_name: str = "",
         chunk_id = retrieved_chunks[0]['chunk_id'] if retrieved_chunks else None
     
     if not retrieved_chunks:
-        return "I'm sorry, I couldn't find information about that topic in my science database. Try asking about plants, animals, the solar system, energy, or weather!", None
+        return "I'm sorry, I couldn't find information about that topic in my science database. Try asking about plants, animals, the solar system, energy, or weather!", None, None
     
     system_prompt, user_prompt = rag_service.create_rag_lesson_prompt(
-        topic, retrieved_chunks, age_group, user_name
+        topic, retrieved_chunks, age_group, user_name, 
+        is_continuation=is_continuation, previous_content=previous_content
     )
     
     return system_prompt, user_prompt, chunk_id

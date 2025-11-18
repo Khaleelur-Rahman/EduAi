@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the RAG (Retrieval-Augmented Generation) implementation that extends your WhatsApp AI Tutor to provide accurate, grounded science lessons for children aged 6-12.
+This document describes the RAG (Retrieval-Augmented Generation) implementation that extends your EduBot to provide accurate, grounded science lessons for children aged 6-12.
 
 ## Architecture
 

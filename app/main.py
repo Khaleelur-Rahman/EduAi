@@ -34,7 +34,7 @@ else:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Starting WhatsApp AI Tutor application...")
+    logger.info("Starting EduBot application...")
     
     create_tables()
     logger.info("Database tables created/verified")
@@ -56,10 +56,10 @@ async def lifespan(app: FastAPI):
     
     yield
     
-    logger.info("Shutting down WhatsApp AI Tutor application...")
+    logger.info("Shutting down EduBot application...")
 
 app = FastAPI(
-    title="WhatsApp AI Tutor",
+    title="EduBot",
     description="An AI-powered tutoring system via WhatsApp using Twilio",
     version="1.0.0",
     lifespan=lifespan
@@ -68,7 +68,7 @@ app = FastAPI(
 @app.get("/")
 async def root():
     return {
-        "message": "WhatsApp AI Tutor is running!",
+        "message": "EduBot is running!",
         "status": "healthy",
         "endpoints": {
             "webhook": "/whatsapp",

@@ -59,7 +59,8 @@ class LLMService:
             logger.error(f"Failed to initialize Cerebras client: {str(e)}")
             raise Exception(f"Cerebras initialization failed: {str(e)}")
     
-    def generate_lesson(self, topic: str, age_group: int, user_name: str = "") -> str:
+    def generate_lesson(self, topic: str, age_group: int, user_name: str = "", 
+                       is_continuation: bool = False, previous_content: str = None) -> str:
         if not self._initialized:
             self.initialize()
         
@@ -67,7 +68,9 @@ class LLMService:
             logger.info(f"Cerebras not available, using fallback lesson for topic: {topic}")
             return self._get_fallback_lesson(topic, age_group)
         
-        system_prompt, user_prompt = self._create_lesson_prompt(topic, age_group, user_name)
+        system_prompt, user_prompt = self._create_lesson_prompt(
+            topic, age_group, user_name, is_continuation=is_continuation, previous_content=previous_content
+        )
         
         try:
             logger.info(f"Generating lesson with Cerebras for topic: {topic}, age: {age_group}")
@@ -94,7 +97,32 @@ class LLMService:
             if len(lesson_content) > 1400:
                 logger.warning(f"Response too long ({len(lesson_content)} chars), retrying with stricter limit")
                 # Retry with a much stricter character limit
-                retry_system_prompt = f"""You are an expert educator and tutor.
+                if is_continuation and previous_content:
+                    retry_system_prompt = f"""You are an expert educator and tutor.
+You are continuing a lesson on {topic}. The student has already learned the previous part.
+
+Instructions:
+- Topic: {topic} (continuation)
+- Age group: {age_group} years old
+- Length: Keep it VERY SHORT (under 1200 characters total - this is critical for WhatsApp delivery).
+- Style: Use simple language, clear examples, and everyday situations.
+
+CONTINUATION STRUCTURE:
+- Start by briefly referencing what was covered in the previous part (1-2 sentences)
+- Then continue with new information
+- Do NOT repeat examples from the previous part
+- Do NOT start with a new example - jump straight into continuing the explanation
+
+CRITICAL FORMATTING RULES:
+- Use single asterisk *text* for bold (WhatsApp format), NOT double asterisks **
+- Do NOT include "Try This at Home" or similar activity sections unless they directly relate to the topic
+- Focus on clear explanations and examples, not generic activities
+
+Make sure the explanation is accurate, easy to follow, and age-appropriate.
+
+CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. Be concise but complete."""
+                else:
+                    retry_system_prompt = f"""You are an expert educator and tutor.
 Your goal is to teach a topic clearly and concisely so that the learner fully understands it.
 
 Instructions:
@@ -104,15 +132,30 @@ Instructions:
 - Style: Use simple language, clear examples, and everyday situations.
 - Structure: Brief introduction, key explanation, and one simple example
 
-Make sure the explanation is **accurate**, **easy to follow**, and **age-appropriate**.
+CRITICAL FORMATTING RULES:
+- Use single asterisk *text* for bold (WhatsApp format), NOT double asterisks **
+- Do NOT include "Try This at Home" or similar activity sections unless they directly relate to the topic
+- Focus on clear explanations and examples, not generic activities
+
+Make sure the explanation is accurate, easy to follow, and age-appropriate.
 
 CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. Be concise but complete."""
+                
+                if is_continuation and previous_content:
+                    retry_user_prompt = f"""Continue teaching about {topic}. 
+
+Previous part of the lesson:
+{previous_content[:500]}
+
+Continue the lesson naturally, referencing what was just covered and building on it!"""
+                else:
+                    retry_user_prompt = f"Please teach me about {topic}."
                 
                 retry_response = self.client.chat.completions.create(
                     model=self.model_name,
                     messages=[
                         {"role": "system", "content": retry_system_prompt},
-                        {"role": "user", "content": f"Please teach me about {topic}."}
+                        {"role": "user", "content": retry_user_prompt}
                     ],
                     max_completion_tokens=400,  # Reduced token limit
                     temperature=0.7,
@@ -178,7 +221,8 @@ CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. B
             logger.info(f"Falling back to predefined lesson for topic: {topic}")
             return self._get_fallback_lesson(topic, age_group)
     
-    def _create_lesson_prompt(self, topic: str, age_group: int, user_name: str = ""):
+    def _create_lesson_prompt(self, topic: str, age_group: int, user_name: str = "", 
+                             is_continuation: bool = False, previous_content: str = None):
         if age_group <= 8:
             style_guide = "Use very simple words, short sentences, and examples with toys, animals, or games"
         elif age_group <= 12:
@@ -188,7 +232,45 @@ CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. B
         else:
             style_guide = "Use detailed explanations with comprehensive examples and professional contexts"
         
-        system_prompt = f"""You are an expert educator and tutor.
+        if is_continuation and previous_content:
+            # Continuation lesson
+            system_prompt = f"""You are an expert educator and tutor.
+You are continuing a lesson on {topic}. The student has already learned the previous part.
+
+Instructions:
+- Topic: {topic} (continuation)
+- Age group: {age_group} years old
+- Length: Keep it concise and focused (under 1400 characters total).
+- Style: {style_guide}.
+
+CONTINUATION STRUCTURE:
+- Start by briefly referencing what was covered in the previous part (1-2 sentences)
+- Then continue with new information
+- Do NOT repeat examples from the previous part
+- Do NOT start with a new example - jump straight into continuing the explanation
+- Make it feel like a natural conversation continuation
+
+CRITICAL FORMATTING RULES:
+- Use single asterisk *text* for bold (WhatsApp format), NOT double asterisks **
+- Do NOT include "Try This at Home" or similar activity sections unless they directly relate to the topic
+- Focus on clear explanations and examples, not generic activities
+- Do not add unnecessary formatting or redundant bold markers
+
+Make sure the explanation is accurate, easy to follow, and age-appropriate.
+
+IMPORTANT: 
+- Make it conversational and connected to what the student just learned.
+- Keep the response under 1400 characters to ensure WhatsApp delivery."""
+            
+            user_prompt = f"""Continue teaching about {topic}. 
+
+Previous part of the lesson:
+{previous_content[:500]}
+
+Continue the lesson naturally, referencing what was just covered and building on it!"""
+        else:
+            # New lesson
+            system_prompt = f"""You are an expert educator and tutor.
 Your goal is to teach a topic clearly and concisely so that the learner fully understands it.
 
 Instructions:
@@ -201,14 +283,20 @@ Instructions:
    2. Key explanation (step by step, or definition + example)
    3. Real-life analogy or story that makes it easy to remember
 
-Make sure the explanation is **accurate**, **easy to follow**, and **age-appropriate**.
+CRITICAL FORMATTING RULES:
+- Use single asterisk *text* for bold (WhatsApp format), NOT double asterisks **
+- Do NOT include "Try This at Home" or similar activity sections unless they directly relate to the topic
+- Focus on clear explanations and examples, not generic activities
+- Do not add unnecessary formatting or redundant bold markers
+
+Make sure the explanation is accurate, easy to follow, and age-appropriate.
 
 IMPORTANT: 
 - Focus only on teaching the topic. Do not introduce yourself or respond to greetings. Start directly with the lesson content.
 - Keep the response under 1400 characters to ensure WhatsApp delivery."""
-        
-        greeting = ""
-        user_prompt = f"""{greeting}Please teach me about {topic}."""
+            
+            greeting = ""
+            user_prompt = f"""{greeting}Please teach me about {topic}."""
         
         return system_prompt, user_prompt
     

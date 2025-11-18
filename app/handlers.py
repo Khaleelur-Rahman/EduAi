@@ -220,8 +220,10 @@ What would you like to learn about first? 🚀
         
         try:
             if current_lesson.is_rag_lesson:
+                # Pass previous lesson content for conversational continuity
                 system_prompt, user_prompt, chunk_id = get_rag_lesson(
-                    current_lesson.topic, user.age, user.name, current_lesson.chunk_id
+                    current_lesson.topic, user.age, user.name, 
+                    current_lesson.chunk_id, previous_content=current_lesson.lesson_content
                 )
                 
                 if chunk_id is None:
@@ -255,16 +257,26 @@ What would you like to learn about first? 🚀
                     logger.warning(f"Next lesson response too long ({len(lesson_content)} chars), retrying with stricter limit")
                     # Retry with a much stricter character limit
                     retry_system_prompt = f"""You are an expert science teacher for children aged {user.age} years old.
-Your goal is to create an engaging, accurate science lesson using the provided educational content.
+You are continuing a lesson on {current_lesson.topic}. The student has already learned the previous part.
 
 Instructions:
-- Topic: {current_lesson.topic}
+- Topic: {current_lesson.topic} (continuation)
 - Age group: {user.age} years old
 - Length: Keep it VERY SHORT (under 1200 characters total - this is critical for WhatsApp delivery)
 - Style: Use simple language, clear examples, and everyday situations
 - Use the provided educational content as your source of information
 - Make sure all facts are accurate and age-appropriate
-- Structure: Brief introduction, key explanation and one simple example
+
+CONTINUATION STRUCTURE:
+- Start by briefly referencing what was covered in the previous part (1-2 sentences)
+- Then continue with new information
+- Do NOT repeat examples from the previous part
+- Do NOT start with a new example - jump straight into continuing the explanation
+
+CRITICAL FORMATTING RULES:
+- Use single asterisk *text* for bold (WhatsApp format), NOT double asterisks **
+- Do NOT include "Try This at Home" or similar activity sections unless they directly relate to the topic
+- Focus on clear explanations and examples, not generic activities
 
 CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. Be concise but complete."""
                     
@@ -333,7 +345,10 @@ CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. B
             else:
                 # Use fallback LLM approach for non-RAG lessons
                 follow_up_topic = f"{current_lesson.topic} - Advanced Concepts"
-                lesson_content = generate_lesson(follow_up_topic, user.age, user.name)
+                lesson_content = generate_lesson(
+                    follow_up_topic, user.age, user.name, 
+                    is_continuation=True, previous_content=current_lesson.lesson_content
+                )
                 update_progress(db, current_lesson, lesson_step=current_lesson.lesson_step + 1, lesson_content=lesson_content)
                 
                 formatted_lesson = format_for_whatsapp(lesson_content, user.age)
@@ -407,7 +422,7 @@ CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. B
                 retry_system_prompt = f"""You are an expert science teacher for children aged {user.age} years old.
 Your goal is to create an engaging, accurate science lesson using the provided educational content.
 
-Instructions:
+Instructions:   
 - Topic: {topic}
 - Age group: {user.age} years old
 - Length: Keep it VERY SHORT (under 1200 characters total - this is critical for WhatsApp delivery)
@@ -415,6 +430,11 @@ Instructions:
 - Use the provided educational content as your source of information
 - Make sure all facts are accurate and age-appropriate
 - Structure: Brief introduction, key explanation and one simple example
+
+CRITICAL FORMATTING RULES:
+- Use single asterisk *text* for bold (WhatsApp format), NOT double asterisks **
+- Do NOT include "Try This at Home" or similar activity sections unless they directly relate to the topic
+- Focus on clear explanations and examples, not generic activities
 
 CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. Be concise but complete."""
                 
@@ -513,7 +533,7 @@ CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. B
             from .rag import rag_service
             retrieved_chunks = rag_service.retrieve_relevant_chunks(topic, limit=5)
 
-            logger.info(f"Retrieved chunks: {retrieved_chunks}")
+            # logger.info(f"Retrieved chunks: {retrieved_chunks}")
             
             if not retrieved_chunks:
                 return False, None, None

@@ -286,7 +286,7 @@ CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. B
                             {"role": "system", "content": retry_system_prompt},
                             {"role": "user", "content": user_prompt}
                         ],
-                        max_completion_tokens=400,  # Reduced token limit
+                        max_completion_tokens=600,  # Increased to ensure complete responses
                         temperature=0.7,
                         top_p=0.8,
                         stream=True
@@ -301,16 +301,19 @@ CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. B
                     logger.info(f"Next lesson retry response length: {len(lesson_content)} characters")
                 
                 # Check if content appears to be truncated (doesn't end with proper punctuation)
-                if lesson_content and not lesson_content.endswith(('.', '!', '?', ':', ';')):
-                    logger.warning(f"Next lesson content appears truncated, attempting to complete: {lesson_content[-50:]}")
+                # Allow emojis at the end, but check the text before emojis
+                import re
+                text_without_emojis = re.sub(r'[\s\U0001F300-\U0001F9FF]+$', '', lesson_content.rstrip())
+                if lesson_content and text_without_emojis and not text_without_emojis.endswith(('.', '!', '?', ':', ';')):
+                    logger.warning(f"Next lesson content appears truncated, attempting to complete: {lesson_content[-100:]}")
                     # Try to complete the truncated content
                     completion_response = llm_service.client.chat.completions.create(
                         model=llm_service.model_name,
                         messages=[
-                            {"role": "system", "content": "Complete the following educational text naturally. Only provide the completion, not the full text."},
-                            {"role": "user", "content": f"Complete this educational text: {lesson_content}"}
+                            {"role": "system", "content": "Complete the following educational text naturally. Only provide the completion to finish the thought, not the full text. Make sure it ends with proper punctuation."},
+                            {"role": "user", "content": f"Complete this educational text (finish the thought naturally): {lesson_content[-300:]}"}
                         ],
-                        max_completion_tokens=200,
+                        max_completion_tokens=300,
                         temperature=0.3,
                         top_p=0.8,
                         stream=False
@@ -318,20 +321,35 @@ CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. B
                     
                     if completion_response.choices[0].message.content:
                         completion = completion_response.choices[0].message.content.strip()
-                        lesson_content += completion
+                        # Remove any duplicate text at the start
+                        if lesson_content.endswith(completion[:20]):
+                            lesson_content = lesson_content.rstrip()
+                        else:
+                            lesson_content += " " + completion
+                        
+                        # Ensure completion ends with punctuation (before any emojis)
+                        text_without_emojis = re.sub(r'[\s\U0001F300-\U0001F9FF]+$', '', lesson_content.rstrip())
+                        if text_without_emojis and not text_without_emojis.endswith(('.', '!', '?', ':', ';')):
+                            # Add punctuation if missing
+                            lesson_content = lesson_content.rstrip() + '.'
+                        
                         logger.info(f"Successfully completed truncated next lesson content")
                 
-                # Final check - if still over limit, truncate at sentence boundary
+                # Final check - if still over limit, truncate at sentence boundary but ensure it ends properly
                 if len(lesson_content) > 1400:
                     logger.warning(f"Next lesson response still too long ({len(lesson_content)} chars), truncating at sentence boundary")
                     sentences = lesson_content.split('. ')
                     truncated = ""
                     for sentence in sentences:
-                        if len(truncated + sentence + '. ') <= 1400:
+                        if len(truncated + sentence + '. ') <= 1350:  # Leave room for proper ending
                             truncated += sentence + '. '
                         else:
                             break
-                    lesson_content = truncated.strip()
+                    # Ensure it ends with punctuation
+                    truncated = truncated.strip()
+                    if not truncated.endswith(('.', '!', '?')):
+                        truncated += '.'
+                    lesson_content = truncated
                     logger.info(f"Next lesson truncated to {len(lesson_content)} characters")
                 update_progress(db, current_lesson, 
                               lesson_content=lesson_content,
@@ -459,16 +477,16 @@ CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. B
                 logger.info(f"RAG retry response length: {len(lesson_content)} characters")
             
             # Check if content appears to be truncated (doesn't end with proper punctuation)
-            if lesson_content and not lesson_content.endswith(('.', '!', '?', ':', ';')):
-                logger.warning(f"RAG content appears truncated, attempting to complete: {lesson_content[-50:]}")
+            if lesson_content and not lesson_content.rstrip().endswith(('.', '!', '?', ':', ';')):
+                logger.warning(f"RAG content appears truncated, attempting to complete: {lesson_content[-100:]}")
                 # Try to complete the truncated content
                 completion_response = llm_service.client.chat.completions.create(
                     model=llm_service.model_name,
                     messages=[
-                        {"role": "system", "content": "Complete the following educational text naturally. Only provide the completion, not the full text."},
-                        {"role": "user", "content": f"Complete this educational text: {lesson_content}"}
+                        {"role": "system", "content": "Complete the following educational text naturally. Only provide the completion to finish the thought, not the full text. Make sure it ends with proper punctuation."},
+                        {"role": "user", "content": f"Complete this educational text (finish the thought naturally): {lesson_content[-300:]}"}
                     ],
-                    max_completion_tokens=200,
+                    max_completion_tokens=300,
                     temperature=0.3,
                     top_p=0.8,
                     stream=False
@@ -476,20 +494,28 @@ CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. B
                 
                 if completion_response.choices[0].message.content:
                     completion = completion_response.choices[0].message.content.strip()
-                    lesson_content += completion
+                    # Remove any duplicate text at the start
+                    if lesson_content.endswith(completion[:20]):
+                        lesson_content = lesson_content.rstrip()
+                    else:
+                        lesson_content += " " + completion
                     logger.info(f"Successfully completed truncated RAG content")
             
-            # Final check - if still over limit, truncate at sentence boundary
+            # Final check - if still over limit, truncate at sentence boundary but ensure it ends properly
             if len(lesson_content) > 1400:
                 logger.warning(f"RAG response still too long ({len(lesson_content)} chars), truncating at sentence boundary")
                 sentences = lesson_content.split('. ')
                 truncated = ""
                 for sentence in sentences:
-                    if len(truncated + sentence + '. ') <= 1400:
+                    if len(truncated + sentence + '. ') <= 1350:  # Leave room for proper ending
                         truncated += sentence + '. '
                     else:
                         break
-                lesson_content = truncated.strip()
+                # Ensure it ends with punctuation
+                truncated = truncated.strip()
+                if not truncated.endswith(('.', '!', '?')):
+                    truncated += '.'
+                lesson_content = truncated
                 logger.info(f"RAG truncated to {len(lesson_content)} characters")
             
             create_progress(db, user.id, topic, lesson_content, 

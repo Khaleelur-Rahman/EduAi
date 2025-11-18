@@ -14,7 +14,7 @@ class LLMService:
         self.model_name = "qwen-3-235b-a22b-instruct-2507"  # Cerebras thinking model
         self.api_key = os.getenv("CEREBRAS_API_KEY")
         self.client = None
-        self.max_tokens = 800
+        self.max_tokens = 1000  # Increased to ensure complete responses
         self.temperature = 0.7
         self.top_p = 0.8
         self._initialized = False
@@ -118,9 +118,16 @@ CRITICAL FORMATTING RULES:
 - Do NOT include "Try This at Home" or similar activity sections unless they directly relate to the topic
 - Focus on clear explanations and examples, not generic activities
 
+CRITICAL COMPLETENESS REQUIREMENTS:
+- ALWAYS complete your response with proper ending punctuation (. ! ?)
+- NEVER cut off mid-sentence, mid-list, or mid-thought
+- If listing items, complete the entire list before ending
+- Ensure the response is a complete, coherent continuation that can stand alone
+- End naturally with a complete sentence
+
 Make sure the explanation is accurate, easy to follow, and age-appropriate.
 
-CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. Be concise but complete."""
+CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. Be concise but ALWAYS complete."""
                 else:
                     retry_system_prompt = f"""You are an expert educator and tutor.
 Your goal is to teach a topic clearly and concisely so that the learner fully understands it.
@@ -137,9 +144,16 @@ CRITICAL FORMATTING RULES:
 - Do NOT include "Try This at Home" or similar activity sections unless they directly relate to the topic
 - Focus on clear explanations and examples, not generic activities
 
+CRITICAL COMPLETENESS REQUIREMENTS:
+- ALWAYS complete your response with proper ending punctuation (. ! ?)
+- NEVER cut off mid-sentence, mid-list, or mid-thought
+- If listing items, complete the entire list before ending
+- Ensure the response is a complete, coherent lesson that can stand alone
+- End naturally with a complete sentence
+
 Make sure the explanation is accurate, easy to follow, and age-appropriate.
 
-CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. Be concise but complete."""
+CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. Be concise but ALWAYS complete."""
                 
                 if is_continuation and previous_content:
                     retry_user_prompt = f"""Continue teaching about {topic}. 
@@ -157,7 +171,7 @@ Continue the lesson naturally, referencing what was just covered and building on
                         {"role": "system", "content": retry_system_prompt},
                         {"role": "user", "content": retry_user_prompt}
                     ],
-                    max_completion_tokens=400,  # Reduced token limit
+                    max_completion_tokens=600,  # Increased to ensure complete responses
                     temperature=0.7,
                     top_p=0.8,
                     stream=True
@@ -172,16 +186,20 @@ Continue the lesson naturally, referencing what was just covered and building on
                 logger.info(f"Retry response length: {len(lesson_content)} characters")
             
             # Check if content appears to be truncated (doesn't end with proper punctuation)
-            if lesson_content and not lesson_content.endswith(('.', '!', '?', ':', ';')):
-                logger.warning(f"Content appears truncated, attempting to complete: {lesson_content[-50:]}")
+            # Allow emojis at the end, but check the text before emojis
+            import re
+            # Remove trailing emojis and whitespace to check actual ending
+            text_without_emojis = re.sub(r'[\s\U0001F300-\U0001F9FF]+$', '', lesson_content.rstrip())
+            if lesson_content and text_without_emojis and not text_without_emojis.endswith(('.', '!', '?', ':', ';')):
+                logger.warning(f"Content appears truncated, attempting to complete: {lesson_content[-100:]}")
                 # Try to complete the truncated content
                 completion_response = self.client.chat.completions.create(
                     model=self.model_name,
                     messages=[
-                        {"role": "system", "content": "Complete the following text naturally. Only provide the completion, not the full text."},
-                        {"role": "user", "content": f"Complete this text: {lesson_content}"}
+                        {"role": "system", "content": "Complete the following educational text naturally. Only provide the completion to finish the thought, not the full text. Make sure it ends with proper punctuation."},
+                        {"role": "user", "content": f"Complete this educational text (finish the thought naturally): {lesson_content[-300:]}"}
                     ],
-                    max_completion_tokens=200,
+                    max_completion_tokens=300,
                     temperature=0.3,
                     top_p=0.8,
                     stream=False
@@ -189,26 +207,43 @@ Continue the lesson naturally, referencing what was just covered and building on
                 
                 if completion_response.choices[0].message.content:
                     completion = completion_response.choices[0].message.content.strip()
-                    lesson_content += completion
+                    # Remove any duplicate text at the start
+                    if lesson_content.endswith(completion[:20]):
+                        lesson_content = lesson_content.rstrip()
+                    else:
+                        lesson_content += " " + completion
+                    
+                    # Ensure completion ends with punctuation (before any emojis)
+                    import re
+                    text_without_emojis = re.sub(r'[\s\U0001F300-\U0001F9FF]+$', '', lesson_content.rstrip())
+                    if text_without_emojis and not text_without_emojis.endswith(('.', '!', '?', ':', ';')):
+                        # Add punctuation if missing
+                        lesson_content = lesson_content.rstrip() + '.'
+                    
                     logger.info(f"Successfully completed truncated content")
             
             if lesson_content:
+                lesson_content = lesson_content.strip()
                 logger.info(f"Cerebras response received: {len(lesson_content)} characters")
                 
                 if len(lesson_content) < 50:
                     raise Exception("Generated content too short")
                 
-                # Final check - if still over limit, truncate at sentence boundary
+                # Final check - if still over limit, truncate at sentence boundary but ensure it ends properly
                 if len(lesson_content) > 1400:
                     logger.warning(f"Response still too long ({len(lesson_content)} chars), truncating at sentence boundary")
                     sentences = lesson_content.split('. ')
                     truncated = ""
                     for sentence in sentences:
-                        if len(truncated + sentence + '. ') <= 1400:
+                        if len(truncated + sentence + '. ') <= 1350:  # Leave room for proper ending
                             truncated += sentence + '. '
                         else:
                             break
-                    lesson_content = truncated.strip()
+                    # Ensure it ends with punctuation
+                    truncated = truncated.strip()
+                    if not truncated.endswith(('.', '!', '?')):
+                        truncated += '.'
+                    lesson_content = truncated
                     logger.info(f"Truncated to {len(lesson_content)} characters")
                 
                 logger.info(f"Successfully generated lesson for topic: {topic}")
@@ -291,9 +326,18 @@ CRITICAL FORMATTING RULES:
 
 Make sure the explanation is accurate, easy to follow, and age-appropriate.
 
+CRITICAL COMPLETENESS REQUIREMENTS:
+- ALWAYS complete your response with proper ending punctuation (. ! ?) BEFORE any emojis
+- If you use emojis at the end, place them AFTER the final punctuation mark
+- NEVER cut off mid-sentence, mid-list, or mid-thought
+- If listing items, complete the entire list before ending
+- Ensure the response is a complete, coherent lesson that can stand alone
+- End naturally with a complete sentence followed by punctuation, then optional emojis
+
 IMPORTANT: 
 - Focus only on teaching the topic. Do not introduce yourself or respond to greetings. Start directly with the lesson content.
-- Keep the response under 1400 characters to ensure WhatsApp delivery."""
+- Keep the response under 1400 characters to ensure WhatsApp delivery.
+- ALWAYS provide a complete, finished response."""
             
             greeting = ""
             user_prompt = f"""{greeting}Please teach me about {topic}."""

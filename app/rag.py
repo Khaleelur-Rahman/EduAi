@@ -353,10 +353,18 @@ CRITICAL FORMATTING RULES:
 - Focus on clear explanations and examples, not generic activities
 - Do not add unnecessary formatting or redundant bold markers
 
+CRITICAL COMPLETENESS REQUIREMENTS:
+- ALWAYS complete your response with proper ending punctuation (. ! ?)
+- NEVER cut off mid-sentence, mid-list, or mid-thought
+- If listing items, complete the entire list before ending
+- Ensure the response is a complete, coherent continuation that can stand alone
+- End naturally with a complete sentence
+
 Important: 
 - Base your lesson on the provided educational content. Do not make up facts that aren't in the source material.
 - Keep the response under 1400 characters to ensure WhatsApp delivery.
-- Make it conversational and connected to what the student just learned."""
+- Make it conversational and connected to what the student just learned.
+- ALWAYS provide a complete, finished response."""
 
             user_prompt = f"""Continue teaching about {topic}. 
 
@@ -387,9 +395,18 @@ CRITICAL FORMATTING RULES:
 - Focus on clear explanations and examples, not generic activities
 - Do not add unnecessary formatting or redundant bold markers
 
+CRITICAL COMPLETENESS REQUIREMENTS:
+- ALWAYS complete your response with proper ending punctuation (. ! ?) BEFORE any emojis
+- If you use emojis at the end, place them AFTER the final punctuation mark
+- NEVER cut off mid-sentence, mid-list, or mid-thought
+- If listing items, complete the entire list before ending
+- Ensure the response is a complete, coherent lesson that can stand alone
+- End naturally with a complete sentence followed by punctuation, then optional emojis
+
 Important: 
 - Base your lesson on the provided educational content. Do not make up facts that aren't in the source material.
-- Keep the response under 1400 characters to ensure WhatsApp delivery."""
+- Keep the response under 1400 characters to ensure WhatsApp delivery.
+- ALWAYS provide a complete, finished response."""
 
             user_prompt = f"""Please teach me about {topic} using this educational content:
 

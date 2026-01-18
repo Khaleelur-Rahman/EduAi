@@ -11,13 +11,16 @@ alembic==1.12.1
 twilio==8.10.3
 
 # AI/ML dependencies
+numpy<2.0.0,>=1.24.0
 transformers>=4.46.0
-torch>=2.1.0
+torch==2.4.1
+torchvision==0.19.1
+torchaudio==2.4.1
 accelerate>=0.28.0
 safetensors>=0.4.0
 
 # RAG dependencies
-sentence-transformers>=2.2.2
+sentence-transformers>=2.2.2,<3.0.0
 chromadb>=0.4.15
 pypdf>=3.0.0
 markdown>=3.5.1

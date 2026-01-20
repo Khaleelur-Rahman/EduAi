@@ -11,7 +11,7 @@ sequenceDiagram
    
     Note over U,LLM: Regular Usage - Lesson Request
     
-    U->>WA: "/lesson fractions"
+    U->>WA: "/lesson cells"
     WA->>T: Message webhook
     T->>NG: POST /whatsapp
     NG->>API: Forward request

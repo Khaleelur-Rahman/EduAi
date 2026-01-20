@@ -150,7 +150,8 @@ Make sure the questions test understanding of the key concepts in this lesson co
     
     def format_quiz_for_whatsapp(self, questions: List[Dict[str, Any]], topic: str, lesson_step: int) -> str:
         """Format quiz questions for WhatsApp display"""
-        quiz_text = f"🧩 *Quiz for {topic.title()} - Part {lesson_step}*\n\n"
+        from .utils import clean_topic_title
+        quiz_text = f"🧩 *Quiz for {clean_topic_title(topic)} - Part {lesson_step}*\n\n"
         
         for i, q in enumerate(questions, 1):
             quiz_text += f"*Q{i}: {q['question']}*\n"

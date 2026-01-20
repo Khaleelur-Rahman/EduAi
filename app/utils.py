@@ -148,14 +148,17 @@ def get_help_message(age_group: int) -> str:
     base_commands = """
 🤖 *EduBot Commands*
 
-📚 `/lesson <topic>` - Get a lesson on any topic
+📚 `/lesson <topic>` - Get a lesson on any topic. (e.g. `/lesson cells`)
 ➡️ `/next` - Continue to next part of lesson
 🧩 `/quiz` - Take a quiz on your current lesson
 ❓ `/help` - Show this help message
 
-*Science Examples (ages 6-12):*
-• /lesson atoms
-• /lesson cells
+🎤 *Voice Messages:*
+For voice messages, use this format:
+• Say "Teach me about <topic>" (e.g., "Teach me about cells")
+• Say "Next" to continue
+• Say "Quiz" for a quiz
+• Say "Help" for help
 
 """
     
@@ -164,6 +167,7 @@ def get_help_message(age_group: int) -> str:
 🌟 *Tips for little learners:*
 • Ask about anything you're curious about!
 • Try science topics like: plants, animals, weather
+• Use voice messages! Say "teach me about plants" 🎤
 • I'll make it super fun and easy! 🎉
 """
     elif age_group <= 12:
@@ -171,6 +175,7 @@ def get_help_message(age_group: int) -> str:
 📖 *Study Tips:*
 • Try science topics: plants, solar system, energy, weather
 • Ask about homework topics
+• Use voice messages! Say "teach me about <topic>" 🎤
 • Practice questions help you learn better! ✏️
 """
     elif age_group <= 16:
@@ -178,6 +183,7 @@ def get_help_message(age_group: int) -> str:
 🎓 *Study Smart:*
 • Get help with exam topics
 • Ask for explanations of difficult concepts
+• Use voice messages for quick questions! 🎤
 • Perfect for homework and test prep 📝
 """
     else:
@@ -185,6 +191,7 @@ def get_help_message(age_group: int) -> str:
 💼 *Professional Learning:*
 • Explore any topic of interest
 • Get clear, structured explanations
+• Use voice messages for hands-free learning! 🎤
 • Perfect for skill development and knowledge growth 📈
 """
     
@@ -192,12 +199,34 @@ def get_help_message(age_group: int) -> str:
 
 
 def parse_lesson_command(message: str) -> Optional[str]:
-    match = re.match(r'/lesson\s+(.+)', message.strip(), re.IGNORECASE)
+    """Parse lesson command from text or voice input.
+    Supports both text format (/lesson <topic>) and voice format (lesson <topic>).
+    """
+    message = message.strip()
+    
+    # Try text format first: /lesson <topic>
+    match = re.match(r'/lesson\s+(.+)', message, re.IGNORECASE)
+    if match:
+        topic = match.group(1).strip()
+        return topic
+    
+    # Try voice-friendly format: lesson <topic> (without slash)
+    match = re.match(r'^lesson\s+(.+)', message, re.IGNORECASE)
     if match:
         topic = match.group(1).strip()
         return topic
     
     return None
+
+def clean_topic_title(topic: str) -> str:
+    """Clean topic title by removing trailing punctuation and formatting properly."""
+    if not topic:
+        return topic
+    
+    topic = topic.rstrip('.,!?;:')
+    topic = topic.title()
+    
+    return topic
 
 
 def get_greeting_emoji(age_group: int) -> str:

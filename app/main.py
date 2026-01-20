@@ -1,18 +1,25 @@
 import os
 import logging
+import uuid
 from contextlib import asynccontextmanager
 from typing import Dict, Any
+from datetime import datetime, timedelta
 
 from fastapi import FastAPI, Request, Depends, HTTPException, Form
-from fastapi.responses import Response
+from fastapi.responses import Response, FileResponse
 from sqlalchemy.orm import Session
 from twilio.twiml.messaging_response import MessagingResponse
 from twilio.rest import Client as TwilioClient
 
 from .db import get_db, create_tables
-from .handlers import process_whatsapp_message
+from .handlers import process_whatsapp_message, process_whatsapp_audio
 from .llm import initialize_llm
 from .rag import initialize_rag
+from .audio import initialize_audio_services
+
+# Temporary in-memory audio storage for TTS files
+# Format: {audio_id: {'bytes': bytes, 'content_type': str, 'created_at': datetime}}
+_temp_audio_store: Dict[str, Dict[str, Any]] = {}
 
 
 logging.basicConfig(
@@ -54,8 +61,18 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to initialize RAG: {str(e)}")
         logger.warning("Application will continue but science lessons may not be available")
     
+    try:
+        logger.info("Initializing audio services (STT/TTS)...")
+        initialize_audio_services()
+        logger.info("Audio services initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize audio services: {str(e)}")
+        logger.warning("Application will continue but audio features may not be available")
+    
     yield
     
+    # Cleanup: Clear temporary audio store on shutdown
+    _temp_audio_store.clear()
     logger.info("Shutting down EduBot application...")
 
 app = FastAPI(
@@ -72,9 +89,79 @@ async def root():
         "status": "healthy",
         "endpoints": {
             "webhook": "/whatsapp",
-            "health": "/health"
+            "health": "/health",
+            "audio": "/audio/{audio_id} (temporary TTS audio serving)"
         }
     }
+
+@app.get("/audio/{audio_id}")
+async def serve_audio(audio_id: str, request: Request):
+    """
+    Temporary endpoint to serve audio files for Twilio media messages.
+    Audio files are stored in memory and expire after 1 hour.
+    """
+    if audio_id not in _temp_audio_store:
+        raise HTTPException(status_code=404, detail="Audio file not found or expired")
+    
+    audio_data = _temp_audio_store[audio_id]
+    
+    # Check if audio has expired (1 hour TTL)
+    if datetime.utcnow() - audio_data['created_at'] > timedelta(hours=1):
+        # Clean up expired audio
+        del _temp_audio_store[audio_id]
+        raise HTTPException(status_code=404, detail="Audio file expired")
+    
+    content_type = audio_data.get('content_type', 'audio/mpeg')
+    
+    return Response(
+        content=audio_data['bytes'],
+        media_type=content_type,
+        headers={
+            'Content-Disposition': f'inline; filename="lesson_{audio_id}.mp3"',
+            'Cache-Control': 'no-cache'
+        }
+    )
+
+def _get_base_url(request: Request) -> str:
+    """Get the base URL of the server from the request.
+    Supports ngrok, proxies, and direct access.
+    """
+    base_url = os.getenv("BASE_URL")
+    if base_url:
+        return base_url.rstrip('/')
+    
+    # Fallback: construct from request
+    # Check for forwarded protocol (for ngrok/proxies)
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+    if not scheme:
+        scheme = "https" if request.url.port == 443 else "http"
+    
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or "localhost:8000"
+    
+    base_url = f"{scheme}://{host}"
+    logger.info(f"Generated base URL: {base_url}")
+    return base_url
+
+def _store_temp_audio(audio_bytes: bytes, content_type: str) -> str:
+    """Store audio bytes temporarily and return a unique ID."""
+    audio_id = str(uuid.uuid4())
+    _temp_audio_store[audio_id] = {
+        'bytes': audio_bytes,
+        'content_type': content_type,
+        'created_at': datetime.utcnow()
+    }
+    
+    # Clean up old audio files (older than 1 hour)
+    current_time = datetime.utcnow()
+    expired_ids = [
+        aid for aid, data in _temp_audio_store.items()
+        if current_time - data['created_at'] > timedelta(hours=1)
+    ]
+    for expired_id in expired_ids:
+        del _temp_audio_store[expired_id]
+    
+    logger.info(f"Stored temporary audio file: {audio_id} ({len(audio_bytes)} bytes)")
+    return audio_id
 
 @app.get("/health")
 async def health_check():
@@ -124,29 +211,90 @@ async def health_check():
 @app.post("/whatsapp")
 async def whatsapp_webhook(
     request: Request,
-    Body: str = Form(...),
+    Body: str = Form(None),
     From: str = Form(...),
     To: str = Form(None),
+    NumMedia: str = Form("0"),
+    MediaUrl0: str = Form(None),
+    MediaContentType0: str = Form(None),
     db: Session = Depends(get_db)
 ):
     try:
-        logger.info(f"Received WhatsApp message from {From}: {Body[:100]}...")
-        
         phone_number = From.replace('whatsapp:', '').strip()
         
         if not phone_number:
             logger.error("Invalid phone number received")
             raise HTTPException(status_code=400, detail="Invalid phone number")
         
-        # Special handling for Twilio WhatsApp Sandbox opt-in message: "join <code>"
-        # Twilio sends its own confirmation for this and may ignore our TwiML reply.
-        # To ensure users see our welcome immediately, send a proactive message
-        # via the REST API when we detect the join message.
-        if Body.strip().lower().startswith("join ") and TWILIO_CLIENT and TWILIO_PHONE_NUMBER:
+        num_media = int(NumMedia) if NumMedia else 0
+        
+        # Handle audio media messages (voice notes)
+        if num_media > 0 and MediaUrl0 and MediaContentType0:
+            content_type = MediaContentType0.lower()
+            if content_type.startswith('audio/'):
+                logger.info(f"Received audio message from {From} (type: {content_type})")
+                
+                response = await process_whatsapp_audio(
+                    db, phone_number, MediaUrl0, content_type, return_audio=True,
+                    twilio_account_sid=TWILIO_ACCOUNT_SID,
+                    twilio_auth_token=TWILIO_AUTH_TOKEN,
+                    twilio_client=TWILIO_CLIENT
+                )
+                
+                if response:
+                    twiml_response = MessagingResponse()
+                    
+                    text = response if isinstance(response, str) else response.get('text', '')
+                    
+                    if isinstance(response, dict) and 'audio_bytes' in response:
+                        try:
+                            audio_id = _store_temp_audio(
+                                response['audio_bytes'],
+                                response.get('audio_content_type', 'audio/mpeg')
+                            )
+                            
+                            base_url = _get_base_url(request)
+                            audio_url = f"{base_url}/audio/{audio_id}"
+                            
+                            logger.info(f"Generated audio URL: {audio_url}")
+                            logger.info(f"Audio file will be accessible at: {audio_url}")
+                            
+                            message = twiml_response.message()
+                            message.media(audio_url)
+                            
+                            if text:
+                                logger.info(f"Sending audio response with text backup: {len(text)} characters")
+                            
+                            logger.info(f"Successfully prepared audio response for Twilio (audio URL: {audio_url})")
+                            
+                        except Exception as e:
+                            logger.error(f"Error preparing audio response: {e}")
+                            if text:
+                                twiml_response.message(text)
+                    else:
+                        if text:
+                            twiml_response.message(text)
+                            logger.info(f"Sending text response for audio message: {len(text)} characters")
+                    
+                    return Response(
+                        content=str(twiml_response),
+                        media_type="application/xml"
+                    )
+                else:
+                    twiml_response = MessagingResponse()
+                    twiml_response.message("Sorry, I couldn't process your audio message. Please try sending a text message! 🎤")
+                    return Response(
+                        content=str(twiml_response),
+                        media_type="application/xml"
+                    )
+        
+        body_text = Body or ""
+        logger.info(f"Received WhatsApp message from {From}: {body_text[:100]}...")
+        
+        if body_text.strip().lower().startswith("join ") and TWILIO_CLIENT and TWILIO_PHONE_NUMBER:
             logger.info("Detected sandbox join message. Sending proactive welcome.")
             try:
-                # Use existing handler to generate the appropriate first-time welcome
-                response_text = process_whatsapp_message(db, phone_number, Body)
+                response_text = process_whatsapp_message(db, phone_number, body_text)
 
                 TWILIO_CLIENT.messages.create(
                     body=response_text,
@@ -159,8 +307,7 @@ async def whatsapp_webhook(
                 logger.error(f"Failed to send proactive welcome: {str(send_err)}")
                 # Fall through to normal flow
 
-        # Normal flow for all other messages
-        response_text = process_whatsapp_message(db, phone_number, Body)
+        response_text = process_whatsapp_message(db, phone_number, body_text)
 
         twiml_response = MessagingResponse()
         twiml_response.message(response_text)

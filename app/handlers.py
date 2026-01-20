@@ -7,10 +7,11 @@ from .llm import generate_lesson
 from .rag import get_rag_lesson, initialize_rag
 from .quiz import create_quiz_from_lesson, check_quiz_answers
 from .utils import (
-    format_for_whatsapp, validate_age, validate_subjects, validate_country, 
-    validate_learning_mode, get_help_message, parse_lesson_command, 
-    get_greeting_emoji, store_subjects_as_json
+    format_for_whatsapp, validate_age,
+    get_help_message, parse_lesson_command, 
+    get_greeting_emoji, clean_topic_title
 )
+from .audio import transcribe_audio, synthesize_speech, tts_service
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -114,7 +115,13 @@ You're all set up! Here's what I know about you:
 📚 `/lesson <topic>` - Start learning any topic
 ❓ `/help` - Get help and see all commands
 
-*Example:* Try typing `/lesson photosynthesis`
+🎤 *Voice Messages:*
+You can also send voice messages! Just say:
+• "teach me about <topic>" (e.g., "teach me about cells")
+• "next" to continue
+• "help" for help
+
+*Example:* Try typing `/lesson cells` or say "teach me about cells" in a voice message!
 
 What would you like to learn about first? 🚀
         """
@@ -165,7 +172,7 @@ What would you like to learn about first? 🚀
     # 📚 `/lesson <topic>` - Start learning any topic
     # ❓ `/help` - Get help and see all commands
     #
-    # *Example:* Try typing `/lesson fractions` or `/lesson photosynthesis`
+    # *Example:* Try typing `/lesson cells` or `/lesson photosynthesis`
     #
     # What would you like to learn about first? 🚀
     #         """
@@ -173,25 +180,38 @@ What would you like to learn about first? 🚀
     
     def _handle_regular_message(self, db: Session, user: User, message: str) -> str:
         message = message.strip()
+        message_lower = message.lower()
         
-        # Handle commands
-        if message.lower().startswith('/help'):
+        # Handle commands (text format with slash)
+        if message_lower.startswith('/help'):
             return self._handle_help_command(user)
         
-        elif message.lower().startswith('/lesson'):
+        elif message_lower.startswith('/lesson'):
             return self._handle_lesson_command(db, user, message)
         
-        elif message.lower().startswith('/next'):
+        elif message_lower.startswith('/next'):
             return self._handle_next_command(db, user)
         
-        elif message.lower().startswith('/quiz'):
+        elif message_lower.startswith('/quiz'):
             return self._handle_quiz_command(db, user)
+        
+        elif message_lower.startswith('teach me about '):
+            topic = message_lower.replace('teach me about', '').strip()
+            if topic and len(topic) > 2:
+                return self._handle_lesson_command(db, user, f"/lesson {topic}")
+        elif message_lower.startswith('lesson '):
+            return self._handle_lesson_command(db, user, message)
+        elif message_lower.startswith('next'):
+            return self._handle_next_command(db, user)
+        elif message_lower.startswith('quiz'):
+            return self._handle_quiz_command(db, user)
+        elif message_lower.startswith('help'):
+            return self._handle_help_command(user)
         
         # Handle quiz answers (check if user has an active quiz)
         elif self._is_quiz_answer(message):
             return self._handle_quiz_answer(db, user, message)
         
-        # Handle general conversation
         else:
             return self._handle_general_message(db, user, message)
     
@@ -201,7 +221,7 @@ What would you like to learn about first? 🚀
     def _handle_lesson_command(self, db: Session, user: User, message: str) -> str:
         topic = parse_lesson_command(message)
         if not topic:
-            return "Please specify a topic! For example: `/lesson fractions` or `/lesson photosynthesis` 📚"
+            return "Please specify a topic! For example: `/lesson cells` or `/lesson photosynthesis` 📚\n\n🎤 *Voice format:* Say \"teach me about cells\" or \"teach me about photosynthesis\""
         
         # Try RAG retrieval first for any topic
         rag_success, retrieved_chunks, chunk_id = self._try_rag_retrieval(topic, user)
@@ -358,7 +378,7 @@ CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. B
                 
                 formatted_lesson = format_for_whatsapp(lesson_content, user.age)
                 
-                return f"📚 *{current_lesson.topic.title()} - Part {current_lesson.lesson_step}*\n\n{formatted_lesson}\n\n_Type `/next` to continue, /quiz for a quiz related to this topic or `/lesson <topic>` for something new!_"
+                return f"*{clean_topic_title(current_lesson.topic)} - Part {current_lesson.lesson_step}*\n\n{formatted_lesson}\n\n_Type `/next` to continue, /quiz for a quiz related to this topic or `/lesson <topic>` for something new!_"
             
             else:
                 # Use fallback LLM approach for non-RAG lessons
@@ -371,33 +391,53 @@ CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. B
                 
                 formatted_lesson = format_for_whatsapp(lesson_content, user.age)
                 
-                return f"📚 *{current_lesson.topic.title()} - Part {current_lesson.lesson_step}*\n\n{formatted_lesson}\n\n_Type `/next` to continue, /quiz for a quiz related to this topic or `/lesson <topic>` for something new!_"
+                return f"*{clean_topic_title(current_lesson.topic)} - Part {current_lesson.lesson_step}*\n\n{formatted_lesson}\n\n_Type `/next` to continue, /quiz for a quiz related to this topic or `/lesson <topic>` for something new!_"
         
         except Exception as e:
             logger.error(f"Failed to generate next lesson part: {str(e)}")
             return "Sorry, I had trouble preparing the next part. Try starting a new lesson with `/lesson <topic>`! 📚"
     
     def _handle_general_message(self, db: Session, user: User, message: str) -> str:
-        question_keywords = ['what is', 'how do', 'how does', 'explain', 'teach me', 'learn about']
+        """Handle general messages with keyword fallback for natural speech."""
+        question_keywords = [
+            'teach me about', 'can you teach me about',
+            'what is', 'how do', 'how does', 'explain', 
+            'teach me', 'learn about', 'tell me about', 
+            'i want to learn about', 'can you tell me about', 
+            'i want to know about'
+        ]
         
         message_lower = message.lower()
         
         for keyword in question_keywords:
             if keyword in message_lower:
-                topic = message_lower.replace(keyword, '').strip('?').strip()
-                if len(topic) > 3:
-                    return f"Great question! Let me teach you about {topic}. 📚\n\nTry: `/lesson {topic}`\n\nOr type `/help` to see all available commands!"
+                # Find the position of the keyword and extract text AFTER it
+                keyword_pos = message_lower.find(keyword)
+                if keyword_pos != -1:
+                    topic = message_lower[keyword_pos + len(keyword):].strip()
+                    topic = topic.replace('about', '').strip('?').strip('.').strip(',').strip()
+                    common_prefixes = ['the', 'a', 'an', 'can you', 'please', 'could you']
+                    for prefix in common_prefixes:
+                        if topic.lower().startswith(prefix + ' '):
+                            topic = topic[len(prefix) + 1:].strip()
+                    topic = topic.strip('?').strip('.').strip(',').strip()
+                    
+                    if len(topic) > 3:
+                        logger.info(f"Auto-detected learning intent for topic: '{topic}' (from message: '{message}')")
+                        return self._handle_lesson_command(db, user, f"/lesson {topic}")
+        
+        voice_format_hint = "\n\n🎤 *Voice messages:* Say \"teach me about <topic>\" (e.g., \"teach me about cells\")"
         
         responses = [
-            f"Hi {user.name}! 👋 I'm here to help you learn. Try `/lesson <topic>` to start learning something new!",
-            f"Hello! Ready to learn something interesting? Use `/lesson <topic>` or type `/help` for commands! 📚",
-            f"Hey there! What would you like to learn about today? Type `/lesson <topic>` to get started! 🎓"
+            f"Hi {user.name}! 👋 I'm here to help you learn.{voice_format_hint}\n\nTry `/lesson <topic>` to start learning something new!",
+            f"Hello! Ready to learn something interesting?{voice_format_hint}\n\nUse `/lesson <topic>` or type `/help` for commands! 📚",
+            f"Hey there! What would you like to learn about today?{voice_format_hint}\n\nType `/lesson <topic>` to get started! 🎓"
         ]
         
         if user.age <= 8:
-            response = f"Hi {user.name}! 🌟 Want to learn something fun? Try `/lesson colors` or `/lesson animals`!"
+            response = f"Hi {user.name}! 🌟 Want to learn something fun?{voice_format_hint}\n\nTry `/lesson colors` or `/lesson animals`!"
         elif user.age <= 12:
-            response = f"Hey {user.name}! 📚 Ready for a lesson? Try `/lesson fractions` or `/lesson dinosaurs`!"
+            response = f"Hey {user.name}! 📚 Ready for a lesson?{voice_format_hint}\n\nTry `/lesson cells` or `/lesson dinosaurs`!"
         else:
             response = responses[hash(user.phone_number) % len(responses)]
         
@@ -525,7 +565,7 @@ CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. B
             
             logger.info(f"Generated RAG lesson for user {user.phone_number} on topic: {topic}")
             
-            return f"📚 *Lesson: {topic.title()}*\n\n{formatted_lesson}\n\n_Type `/next` for more on this topic or `/lesson <new topic>` for something else!_"
+            return f"📚 *Lesson: {clean_topic_title(topic)}*\n\n{formatted_lesson}\n\n_Type `/next` for more on this topic or `/lesson <new topic>` for something else!_"
         
         except Exception as e:
             logger.error(f"Failed to generate RAG lesson for topic {topic}: {str(e)}")
@@ -541,7 +581,7 @@ CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. B
             
             logger.info(f"Generated base LLM lesson for user {user.phone_number} on topic: {topic}")
             
-            return f"📚 *Lesson: {topic.title()}*\n\n{formatted_lesson}\n\n_Type `/next` for more on this topic or `/lesson <new topic>` for something else!_"
+            return f"📚 *Lesson: {clean_topic_title(topic)}*\n\n{formatted_lesson}\n\n_Type `/next` for more on this topic or `/lesson <new topic>` for something else!_"
         
         except Exception as e:
             logger.error(f"Failed to generate lesson for topic {topic}: {str(e)}")
@@ -629,6 +669,170 @@ message_handler = MessageHandler()
 
 def process_whatsapp_message(db: Session, phone_number: str, message: str) -> str:
     return message_handler.process_message(db, phone_number, message)
+
+async def process_whatsapp_audio(
+    db: Session, 
+    phone_number: str, 
+    media_url: str, 
+    content_type: str,
+    return_audio: bool = True,
+    twilio_account_sid: str = None,
+    twilio_auth_token: str = None,
+    twilio_client = None
+) -> dict:
+    """
+    Process incoming audio message from WhatsApp.
+    
+    Args:
+        db: Database session
+        phone_number: User's phone number
+        media_url: URL to fetch audio from Twilio
+        content_type: MIME type of the audio
+        return_audio: Whether to return audio response (TTS) or just text
+    
+    Returns:
+        Dictionary with 'text' and optionally 'audio_bytes' and 'audio_content_type'
+    """
+    import requests
+    
+    try:
+        logger.info(f"Processing audio message from {phone_number}")
+        
+        # Fetch audio file from Twilio (requires authentication)
+        logger.info(f"Fetching audio from {media_url}")
+        
+        import os
+        from twilio.rest import Client as TwilioClient
+        
+        audio_data = None
+        
+        # Method 1: Use provided Twilio client (preferred)
+        if twilio_client:
+            try:
+                logger.info("Fetching media using Twilio client...")
+                # Extract Message SID and Media SID from URL
+                # URL format: .../Accounts/{AC}/Messages/{MM}/Media/{ME}...
+                parts = media_url.split('/')
+                message_sid = None
+                media_sid = None
+                
+                for i, part in enumerate(parts):
+                    if part == 'Messages' and i + 1 < len(parts):
+                        message_sid = parts[i + 1]
+                    if part == 'Media' and i + 1 < len(parts):
+                        media_sid = parts[i + 1].split('/')[0]
+                
+                if message_sid and media_sid:
+                    # Fetch media using Twilio client
+                    media = twilio_client.messages(message_sid).media(media_sid).fetch()
+                    # Get content URL (remove .json extension if present)
+                    # media.uri might be a relative path, so we need to construct the full URL
+                    if media.uri.startswith('http'):
+                        content_url = media.uri.replace('.json', '')
+                    else:
+                        # Construct full URL from the base API URL
+                        content_url = f"https://api.twilio.com{media.uri.replace('.json', '')}"
+                    
+                    if not twilio_account_sid:
+                        twilio_account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+                    if not twilio_auth_token:
+                        twilio_auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+                    audio_data = requests.get(
+                        content_url,
+                        auth=(twilio_account_sid, twilio_auth_token),
+                        timeout=30
+                    ).content
+                    logger.info(f"Successfully fetched media using Twilio client: {len(audio_data)} bytes")
+            except Exception as client_err:
+                logger.warning(f"Failed to fetch using Twilio client: {client_err}, trying direct HTTP...")
+        
+        # Method 2: Direct HTTP request with credentials
+        if not audio_data:
+            if not twilio_account_sid:
+                twilio_account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+            if not twilio_auth_token:
+                twilio_auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+            
+            if not twilio_account_sid or not twilio_auth_token:
+                logger.error("Twilio credentials not found. Cannot fetch audio media.")
+                return {
+                    'text': "Sorry, I couldn't access your audio message. Please try sending a text message! 🎤"
+                }         
+            
+            try:
+                response = requests.get(
+                    media_url, 
+                    auth=(twilio_account_sid, twilio_auth_token),
+                    timeout=30
+                )
+                response.raise_for_status()
+                audio_data = response.content
+            except requests.exceptions.HTTPError as e:
+                logger.error(f"HTTP error fetching audio: {e}")
+                logger.error(f"Response status: {response.status_code}")
+                logger.error(f"Response text: {response.text[:200]}")
+                raise
+        
+        logger.info(f"Audio fetched: {len(audio_data)} bytes, type: {content_type}")
+        
+        # Transcribe audio to text
+        logger.info("Transcribing audio...")
+        transcribed_text = transcribe_audio(audio_data, content_type)
+        
+        if not transcribed_text:
+            logger.error("Failed to transcribe audio")
+            return {
+                'text': "Sorry, I couldn't understand your voice message. Could you please send it as text? 🎤"
+            }
+        
+        logger.info(f"Transcription successful: {transcribed_text}")
+        
+        user = get_user_by_phone(db, phone_number)
+        if not user:
+            user = create_user(db, phone_number)
+        
+        # Check if transcription matches expected voice format
+        transcribed_lower = transcribed_text.lower().strip()
+        voice_format_commands = ['teach me about ', 'lesson ', 'next', 'quiz', 'help']
+        uses_voice_format = any(transcribed_lower.startswith(cmd) for cmd in voice_format_commands)
+        
+        if not uses_voice_format and user.is_onboarded:
+            logger.info("Voice message doesn't use recommended format 'teach me about <topic>', will try keyword fallback")
+        
+        response_text = process_whatsapp_message(db, phone_number, transcribed_text)
+        
+        result = {'text': response_text}
+        
+        # Generate audio response if requested and user is onboarded
+        if return_audio and user.is_onboarded:
+            try:
+                voice = tts_service.get_voice_for_age(user.age if user.age else 10)
+                
+                logger.info(f"Generating audio response (voice: {voice}, age: {user.age})...")
+                audio_result = synthesize_speech(response_text, voice, user.age if user.age else 10)
+                
+                if audio_result:
+                    audio_bytes, audio_content_type = audio_result
+                    result['audio_bytes'] = audio_bytes
+                    result['audio_content_type'] = audio_content_type
+                    logger.info(f"Audio response generated: {len(audio_bytes)} bytes")
+                else:
+                    logger.warning("Failed to generate audio response, returning text only")
+            except Exception as e:
+                logger.error(f"Error generating audio response: {e}")
+        
+        return result
+        
+    except requests.RequestException as e:
+        logger.error(f"Error fetching audio from Twilio: {e}")
+        return {
+            'text': "Sorry, I couldn't download your audio message. Please try again! 🎤"
+        }
+    except Exception as e:
+        logger.error(f"Error processing audio message: {e}")
+        return {
+            'text': "Sorry, I'm having trouble processing your voice message. Please try sending a text message! 🎤"
+        }
 
 if __name__ == "__main__":
     print("Message handlers module loaded successfully!")

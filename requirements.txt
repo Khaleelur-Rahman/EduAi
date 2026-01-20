@@ -42,5 +42,11 @@ pydantic>=1.10.24,<2.0.0
 # Date/time utilities
 python-dateutil==2.8.2
 
+# Audio processing (STT/TTS)
+openai>=1.0.0  # For Whisper API and TTS API
+openai-whisper>=20231117  # Local Whisper fallback (optional, for offline use)
+edge-tts>=6.1.0  # Microsoft Edge TTS fallback (free, Python 3.12 compatible, requires internet)
+torchaudio>=2.4.1  # Already included above, needed for Whisper
+
 # Optional: For better performance with transformers
 # optimum[onnxruntime]==1.16.0  # Uncomment for ONNX acceleration

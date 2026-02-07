@@ -311,8 +311,9 @@ class RAGService:
     
     def create_rag_lesson_prompt(self, topic: str, retrieved_chunks: List[Dict[str, Any]], 
                                 age_group: int, user_name: str = "", 
-                                is_continuation: bool = False, previous_content: str = None) -> Tuple[str, str]:
-        """Create a prompt for generating a RAG-based lesson."""
+                                is_continuation: bool = False, previous_content: str = None,
+                                for_audio: bool = False) -> Tuple[str, str]:
+        """Create a prompt for generating a RAG-based lesson. When for_audio is True, instructs LLM to write for TTS."""
         
         if age_group <= 8:
             style_guide = "Use very simple words, short sentences, and examples with toys, animals, or games. Use lots of emojis and make it fun!"
@@ -365,6 +366,10 @@ Important:
 - Keep the response under 1400 characters to ensure WhatsApp delivery.
 - Make it conversational and connected to what the student just learned.
 - ALWAYS provide a complete, finished response."""
+            if for_audio:
+                system_prompt += """
+
+AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for listening: use short, complete sentences; avoid markdown headers (##) and bullet lists—use flowing prose instead; do not include instructions like "Type /next"; use minimal or no emojis; write as if you are speaking to the student."""
 
             user_prompt = f"""Continue teaching about {topic}. 
 
@@ -407,6 +412,10 @@ Important:
 - Base your lesson on the provided educational content. Do not make up facts that aren't in the source material.
 - Keep the response under 1400 characters to ensure WhatsApp delivery.
 - ALWAYS provide a complete, finished response."""
+            if for_audio:
+                system_prompt += """
+
+AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for listening: use short, complete sentences; avoid markdown headers (##) and bullet lists—use flowing prose instead; do not include instructions like "Type /next"; use minimal or no emojis; write as if you are speaking to the student."""
 
             user_prompt = f"""Please teach me about {topic} using this educational content:
 
@@ -423,7 +432,8 @@ def initialize_rag():
     rag_service.initialize()
 
 def get_rag_lesson(topic: str, age_group: int, user_name: str = "", 
-                  current_chunk_id: str = None, previous_content: str = None) -> Tuple[str, str, Optional[str]]:
+                  current_chunk_id: str = None, previous_content: str = None,
+                  for_audio: bool = False) -> Tuple[str, str, Optional[str]]:
     """
     Generate a RAG-based lesson for the given topic.
     Returns (system_prompt, user_prompt, chunk_id) for lesson generation.
@@ -434,6 +444,7 @@ def get_rag_lesson(topic: str, age_group: int, user_name: str = "",
         user_name: Name of the student
         current_chunk_id: If continuing a lesson, the current chunk ID
         previous_content: If continuing a lesson, the previous lesson content
+        for_audio: If True, prompt asks for spoken-style output (TTS-friendly)
     """
     if not rag_service._initialized:
         rag_service.initialize()
@@ -460,7 +471,8 @@ def get_rag_lesson(topic: str, age_group: int, user_name: str = "",
     
     system_prompt, user_prompt = rag_service.create_rag_lesson_prompt(
         topic, retrieved_chunks, age_group, user_name, 
-        is_continuation=is_continuation, previous_content=previous_content
+        is_continuation=is_continuation, previous_content=previous_content,
+        for_audio=for_audio
     )
     
     return system_prompt, user_prompt, chunk_id

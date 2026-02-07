@@ -1,4 +1,5 @@
 import os
+import re
 import logging
 from cerebras.cloud.sdk import Cerebras
 from dotenv import load_dotenv
@@ -11,7 +12,7 @@ logger = logging.getLogger(__name__)
 class LLMService:
     
     def __init__(self):
-        self.model_name = "qwen-3-235b-a22b-instruct-2507"  # Cerebras thinking model
+        self.model_name = os.getenv("CEREBRAS_MODEL", "qwen-3-32b")  # Use qwen-3-32b (235b deprecated)
         self.api_key = os.getenv("CEREBRAS_API_KEY")
         self.client = None
         self.max_tokens = 1000  # Increased to ensure complete responses
@@ -60,7 +61,8 @@ class LLMService:
             raise Exception(f"Cerebras initialization failed: {str(e)}")
     
     def generate_lesson(self, topic: str, age_group: int, user_name: str = "", 
-                       is_continuation: bool = False, previous_content: str = None) -> str:
+                       is_continuation: bool = False, previous_content: str = None,
+                       for_audio: bool = False) -> str:
         if not self._initialized:
             self.initialize()
         
@@ -69,7 +71,8 @@ class LLMService:
             return self._get_fallback_lesson(topic, age_group)
         
         system_prompt, user_prompt = self._create_lesson_prompt(
-            topic, age_group, user_name, is_continuation=is_continuation, previous_content=previous_content
+            topic, age_group, user_name, is_continuation=is_continuation, previous_content=previous_content,
+            for_audio=for_audio
         )
         
         try:
@@ -93,7 +96,7 @@ class LLMService:
                     lesson_content += chunk.choices[0].delta.content
             
             lesson_content = lesson_content.strip()
-            
+            lesson_content = re.sub(r'<think>.*?</think>', '', lesson_content, flags=re.DOTALL | re.IGNORECASE).strip()
             if len(lesson_content) > 1400:
                 logger.warning(f"Response too long ({len(lesson_content)} chars), retrying with stricter limit")
                 # Retry with a much stricter character limit
@@ -154,6 +157,10 @@ CRITICAL COMPLETENESS REQUIREMENTS:
 Make sure the explanation is accurate, easy to follow, and age-appropriate.
 
 CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. Be concise but ALWAYS complete."""
+                if for_audio:
+                    retry_system_prompt += """
+
+AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for listening: use short, complete sentences; avoid markdown headers (##) and bullet lists—use flowing prose instead; do not include instructions like "Type /next"; use minimal or no emojis; write as if you are speaking to the student."""
                 
                 if is_continuation and previous_content:
                     retry_user_prompt = f"""Continue teaching about {topic}. 
@@ -183,6 +190,7 @@ Continue the lesson naturally, referencing what was just covered and building on
                         lesson_content += chunk.choices[0].delta.content
                 
                 lesson_content = lesson_content.strip()
+                lesson_content = re.sub(r'<think>.*?</think>', '', lesson_content, flags=re.DOTALL | re.IGNORECASE).strip()
                 logger.info(f"Retry response length: {len(lesson_content)} characters")
             
             # Check if content appears to be truncated (doesn't end with proper punctuation)
@@ -257,7 +265,8 @@ Continue the lesson naturally, referencing what was just covered and building on
             return self._get_fallback_lesson(topic, age_group)
     
     def _create_lesson_prompt(self, topic: str, age_group: int, user_name: str = "", 
-                             is_continuation: bool = False, previous_content: str = None):
+                             is_continuation: bool = False, previous_content: str = None,
+                             for_audio: bool = False):
         if age_group <= 8:
             style_guide = "Use very simple words, short sentences, and examples with toys, animals, or games"
         elif age_group <= 12:
@@ -296,6 +305,10 @@ Make sure the explanation is accurate, easy to follow, and age-appropriate.
 IMPORTANT: 
 - Make it conversational and connected to what the student just learned.
 - Keep the response under 1400 characters to ensure WhatsApp delivery."""
+            if for_audio:
+                system_prompt += """
+
+AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for listening: use short, complete sentences; avoid markdown headers (##) and bullet lists—use flowing prose instead; do not include instructions like "Type /next"; use minimal or no emojis; write as if you are speaking to the student."""
             
             user_prompt = f"""Continue teaching about {topic}. 
 
@@ -338,6 +351,10 @@ IMPORTANT:
 - Focus only on teaching the topic. Do not introduce yourself or respond to greetings. Start directly with the lesson content.
 - Keep the response under 1400 characters to ensure WhatsApp delivery.
 - ALWAYS provide a complete, finished response."""
+            if for_audio:
+                system_prompt += """
+
+AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for listening: use short, complete sentences; avoid markdown headers (##) and bullet lists—use flowing prose instead; do not include instructions like "Type /next"; use minimal or no emojis; write as if you are speaking to the student."""
             
             greeting = ""
             user_prompt = f"""{greeting}Please teach me about {topic}."""
@@ -459,10 +476,12 @@ Try asking me again, or ask for help with a specific part of {topic} that intere
 llm_service = LLMService()
 
 def generate_lesson(topic: str, age_group: int, user_name: str = "", 
-                   is_continuation: bool = False, previous_content: str = None) -> str:
+                   is_continuation: bool = False, previous_content: str = None,
+                   for_audio: bool = False) -> str:
     return llm_service.generate_lesson(topic, age_group, user_name, 
                                       is_continuation=is_continuation, 
-                                      previous_content=previous_content)
+                                      previous_content=previous_content,
+                                      for_audio=for_audio)
 
 def initialize_llm():
     llm_service.initialize()

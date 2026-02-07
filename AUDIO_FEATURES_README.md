@@ -69,9 +69,18 @@ pip install -r requirements.txt
 
 ### Audio Output Flow
 
-1. LLM generates age-tailored lesson text
-2. Text is converted to speech using TTS service
-3. Audio is sent back via WhatsApp (currently text-only, audio upload coming soon)
+1. LLM generates age-tailored lesson text (or handler returns WhatsApp-formatted response).
+2. **LLM/RAG prompts for audio**: When the user sends a voice message, the handler uses `for_audio=True`. RAG and LLM lesson prompts then add an **AUDIO/TTS MODE** block instructing the model to write for listening: short sentences, flowing prose (no markdown headers or bullet lists), no "Type /next" instructions, minimal emojis, as if speaking to the student.
+3. **Audio-friendly transform**: Before TTS, text is passed through `_text_to_audio_friendly()` so it reads naturally when spoken:
+   - Headers like `*Lesson: Topic*` and `*Topic - Part N*` become short spoken phrases (e.g. “Lesson: Topic.”, “Part N. Topic.”)
+   - Markdown bold/italic (`*text*`, `_text_`) is stripped to plain text
+   - Bullets and numbered lists are turned into full sentences with periods
+   - UI instructions (e.g. “_Type /next to continue_”) are replaced with a brief cue: “Say ‘Next’ to continue.”
+   - Emojis are removed; extra newlines are collapsed so the model doesn’t over-pause
+4. Text is converted to speech using TTS. To keep lessons detailed and student-friendly, the full paragraph is **chunked** into segments that each end at a sentence boundary (up to ~4 sentences or ~120 words per chunk). Each segment is synthesized separately.
+5. Audio is sent back via WhatsApp: the first segment is sent in the webhook reply; any further segments are sent as follow-up messages via the Twilio REST API, so the user receives the full lesson as multiple voice notes that each make sense on their own.
+
+The helper `text_to_audio_friendly(text)` in `app/audio` can be used to preview or test the audio-friendly version of any string.
 
 ### Voice Selection
 
@@ -214,6 +223,26 @@ For 1000 users sending 1 voice message/day:
 - Temporary files are cleaned up after processing
 - API keys should be stored securely in environment variables
 - User audio data is not logged (only transcripts may be logged)
+
+## Troubleshooting
+
+### "Media failed to download" with ngrok (Twilio error 63019)
+
+When using **ngrok free tier**, Twilio may fail to download audio from your `/audio/{id}` URLs. ngrok’s free plan can serve an HTML "Visit Site" interstitial for some requests; if Twilio gets that page instead of the audio file, it reports "media failed to download".
+
+**Workarounds:**
+
+1. **Use Cloudflare Tunnel (free, no interstitial)**  
+   ```bash
+   cloudflared tunnel --url http://localhost:8000
+   ```  
+   Set `BASE_URL` to the `*.trycloudflare.com` URL shown. Twilio can fetch media from this URL without the interstitial.
+
+2. **Use ngrok paid** so the browser warning/interstitial is disabled.
+
+3. **Deploy to a real host** (e.g. Railway, Render, Fly.io) and set `BASE_URL` to your app’s public URL.
+
+**With cloudflared:** (1) Set `BASE_URL=https://YOUR-TUNNEL.trycloudflare.com` (no trailing slash) and **restart the app**. (2) In Twilio, set the webhook to `https://YOUR-TUNNEL.trycloudflare.com/whatsapp` so both webhook and media use the same URL. Quick tunnels get a new URL each run. Check app logs for "BASE_URL set" or "Media base URL" to confirm.
 
 ## Support
 

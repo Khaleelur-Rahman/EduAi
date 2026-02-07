@@ -9,9 +9,9 @@ from .quiz import create_quiz_from_lesson, check_quiz_answers
 from .utils import (
     format_for_whatsapp, validate_age,
     get_help_message, parse_lesson_command, 
-    get_greeting_emoji, clean_topic_title
+    get_greeting_emoji, clean_topic_title, strip_think_tags
 )
-from .audio import transcribe_audio, synthesize_speech, tts_service
+from .audio import transcribe_audio, synthesize_speech, synthesize_speech_chunked, tts_service
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ class MessageHandler:
         # RAG confidence threshold for determining if retrieved content is relevant
         self.rag_confidence_threshold = 0.6
     
-    def process_message(self, db: Session, phone_number: str, message: str) -> str:
+    def process_message(self, db: Session, phone_number: str, message: str, for_audio: bool = False) -> str:
         try:
             user = get_user_by_phone(db, phone_number)
             is_new_user = False
@@ -46,7 +46,7 @@ class MessageHandler:
             if not user.is_onboarded:
                 return self._handle_onboarding(db, user, message, is_new_user)
             else:
-                return self._handle_regular_message(db, user, message)
+                return self._handle_regular_message(db, user, message, for_audio=for_audio)
                 
         except Exception as e:
             logger.error(f"Error processing message from {phone_number}: {str(e)}")
@@ -178,7 +178,7 @@ What would you like to learn about first? 🚀
     #         """
     #     return format_for_whatsapp(welcome_msg, user.age)
     
-    def _handle_regular_message(self, db: Session, user: User, message: str) -> str:
+    def _handle_regular_message(self, db: Session, user: User, message: str, for_audio: bool = False) -> str:
         message = message.strip()
         message_lower = message.lower()
         
@@ -187,10 +187,10 @@ What would you like to learn about first? 🚀
             return self._handle_help_command(user)
         
         elif message_lower.startswith('/lesson'):
-            return self._handle_lesson_command(db, user, message)
+            return self._handle_lesson_command(db, user, message, for_audio=for_audio)
         
         elif message_lower.startswith('/next'):
-            return self._handle_next_command(db, user)
+            return self._handle_next_command(db, user, for_audio=for_audio)
         
         elif message_lower.startswith('/quiz'):
             return self._handle_quiz_command(db, user)
@@ -198,11 +198,11 @@ What would you like to learn about first? 🚀
         elif message_lower.startswith('teach me about '):
             topic = message_lower.replace('teach me about', '').strip()
             if topic and len(topic) > 2:
-                return self._handle_lesson_command(db, user, f"/lesson {topic}")
+                return self._handle_lesson_command(db, user, f"/lesson {topic}", for_audio=for_audio)
         elif message_lower.startswith('lesson '):
-            return self._handle_lesson_command(db, user, message)
+            return self._handle_lesson_command(db, user, message, for_audio=for_audio)
         elif message_lower.startswith('next'):
-            return self._handle_next_command(db, user)
+            return self._handle_next_command(db, user, for_audio=for_audio)
         elif message_lower.startswith('quiz'):
             return self._handle_quiz_command(db, user)
         elif message_lower.startswith('help'):
@@ -213,12 +213,12 @@ What would you like to learn about first? 🚀
             return self._handle_quiz_answer(db, user, message)
         
         else:
-            return self._handle_general_message(db, user, message)
+            return self._handle_general_message(db, user, message, for_audio=for_audio)
     
     def _handle_help_command(self, user: User) -> str:
         return get_help_message(user.age)
     
-    def _handle_lesson_command(self, db: Session, user: User, message: str) -> str:
+    def _handle_lesson_command(self, db: Session, user: User, message: str, for_audio: bool = False) -> str:
         topic = parse_lesson_command(message)
         if not topic:
             return "Please specify a topic! For example: `/lesson cells` or `/lesson photosynthesis` 📚\n\n🎤 *Voice format:* Say \"teach me about cells\" or \"teach me about photosynthesis\""
@@ -228,11 +228,11 @@ What would you like to learn about first? 🚀
         logger.info(f"RAG success: {rag_success}, retrieved chunks: {retrieved_chunks}, chunk_id: {chunk_id}")
         
         if rag_success:
-            return self._generate_rag_lesson(db, user, topic, retrieved_chunks, chunk_id)
+            return self._generate_rag_lesson(db, user, topic, retrieved_chunks, chunk_id, for_audio=for_audio)
         else:
-            return self._generate_base_llm_lesson(db, user, topic)
+            return self._generate_base_llm_lesson(db, user, topic, for_audio=for_audio)
     
-    def _handle_next_command(self, db: Session, user: User) -> str:
+    def _handle_next_command(self, db: Session, user: User, for_audio: bool = False) -> str:
         current_lesson = get_current_lesson(db, user.id)
         
         if not current_lesson:
@@ -243,7 +243,8 @@ What would you like to learn about first? 🚀
                 # Pass previous lesson content for conversational continuity
                 system_prompt, user_prompt, chunk_id = get_rag_lesson(
                     current_lesson.topic, user.age, user.name, 
-                    current_lesson.chunk_id, previous_content=current_lesson.lesson_content
+                    current_lesson.chunk_id, previous_content=current_lesson.lesson_content,
+                    for_audio=for_audio
                 )
                 
                 if chunk_id is None:
@@ -271,7 +272,7 @@ What would you like to learn about first? 🚀
                         lesson_content += chunk.choices[0].delta.content
                 
                 lesson_content = lesson_content.strip()
-                
+                lesson_content = strip_think_tags(lesson_content)
                 # Check if content exceeds Twilio's 1400 character limit
                 if len(lesson_content) > 1400:
                     logger.warning(f"Next lesson response too long ({len(lesson_content)} chars), retrying with stricter limit")
@@ -299,6 +300,10 @@ CRITICAL FORMATTING RULES:
 - Focus on clear explanations and examples, not generic activities
 
 CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. Be concise but complete."""
+                    if for_audio:
+                        retry_system_prompt += """
+
+AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for listening: use short, complete sentences; avoid markdown headers (##) and bullet lists—use flowing prose instead; do not include instructions like "Type /next"; use minimal or no emojis; write as if you are speaking to the student."""
                     
                     retry_response = llm_service.client.chat.completions.create(
                         model=llm_service.model_name,
@@ -318,6 +323,7 @@ CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. B
                             lesson_content += chunk.choices[0].delta.content
                     
                     lesson_content = lesson_content.strip()
+                    lesson_content = strip_think_tags(lesson_content)
                     logger.info(f"Next lesson retry response length: {len(lesson_content)} characters")
                 
                 # Check if content appears to be truncated (doesn't end with proper punctuation)
@@ -385,7 +391,8 @@ CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. B
                 follow_up_topic = f"{current_lesson.topic} - Advanced Concepts"
                 lesson_content = generate_lesson(
                     follow_up_topic, user.age, user.name, 
-                    is_continuation=True, previous_content=current_lesson.lesson_content
+                    is_continuation=True, previous_content=current_lesson.lesson_content,
+                    for_audio=for_audio
                 )
                 update_progress(db, current_lesson, lesson_step=current_lesson.lesson_step + 1, lesson_content=lesson_content)
                 
@@ -397,7 +404,7 @@ CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. B
             logger.error(f"Failed to generate next lesson part: {str(e)}")
             return "Sorry, I had trouble preparing the next part. Try starting a new lesson with `/lesson <topic>`! 📚"
     
-    def _handle_general_message(self, db: Session, user: User, message: str) -> str:
+    def _handle_general_message(self, db: Session, user: User, message: str, for_audio: bool = False) -> str:
         """Handle general messages with keyword fallback for natural speech."""
         question_keywords = [
             'teach me about', 'can you teach me about',
@@ -424,7 +431,7 @@ CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. B
                     
                     if len(topic) > 3:
                         logger.info(f"Auto-detected learning intent for topic: '{topic}' (from message: '{message}')")
-                        return self._handle_lesson_command(db, user, f"/lesson {topic}")
+                        return self._handle_lesson_command(db, user, f"/lesson {topic}", for_audio=for_audio)
         
         voice_format_hint = "\n\n🎤 *Voice messages:* Say \"teach me about <topic>\" (e.g., \"teach me about cells\")"
         
@@ -443,12 +450,12 @@ CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. B
         
         return format_for_whatsapp(response, user.age)
     
-    def _generate_rag_lesson(self, db: Session, user: User, topic: str, retrieved_chunks: List[Dict], chunk_id: str) -> str:
+    def _generate_rag_lesson(self, db: Session, user: User, topic: str, retrieved_chunks: List[Dict], chunk_id: str, for_audio: bool = False) -> str:
         """Generate a lesson using RAG-retrieved content."""
         try:
             from .rag import rag_service
             system_prompt, user_prompt = rag_service.create_rag_lesson_prompt(
-                topic, retrieved_chunks, user.age, user.name
+                topic, retrieved_chunks, user.age, user.name, for_audio=for_audio
             )
             
             from .llm import llm_service
@@ -473,7 +480,7 @@ CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. B
                     lesson_content += chunk.choices[0].delta.content
             
             lesson_content = lesson_content.strip()
-            
+            lesson_content = strip_think_tags(lesson_content)
             if len(lesson_content) > 4600:
                 logger.warning(f"RAG response too long ({len(lesson_content)} chars), retrying with stricter limit")
                 # Retry with a much stricter character limit
@@ -495,6 +502,10 @@ CRITICAL FORMATTING RULES:
 - Focus on clear explanations and examples, not generic activities
 
 CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. Be concise but complete."""
+                if for_audio:
+                    retry_system_prompt += """
+
+AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for listening: use short, complete sentences; avoid markdown headers (##) and bullet lists—use flowing prose instead; do not include instructions like "Type /next"; use minimal or no emojis; write as if you are speaking to the student."""
                 
                 retry_response = llm_service.client.chat.completions.create(
                     model=llm_service.model_name,
@@ -514,6 +525,7 @@ CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. B
                         lesson_content += chunk.choices[0].delta.content
                 
                 lesson_content = lesson_content.strip()
+                lesson_content = strip_think_tags(lesson_content)
                 logger.info(f"RAG retry response length: {len(lesson_content)} characters")
             
             # Check if content appears to be truncated (doesn't end with proper punctuation)
@@ -570,12 +582,12 @@ CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. B
         except Exception as e:
             logger.error(f"Failed to generate RAG lesson for topic {topic}: {str(e)}")
             # Fallback to base LLM if RAG generation fails
-            return self._generate_base_llm_lesson(db, user, topic)
+            return self._generate_base_llm_lesson(db, user, topic, for_audio=for_audio)
     
-    def _generate_base_llm_lesson(self, db: Session, user: User, topic: str) -> str:
+    def _generate_base_llm_lesson(self, db: Session, user: User, topic: str, for_audio: bool = False) -> str:
         """Generate a lesson using base LLM without RAG."""
         try:
-            lesson_content = generate_lesson(topic, user.age, user.name)
+            lesson_content = generate_lesson(topic, user.age, user.name, for_audio=for_audio)
             progress = create_progress(db, user.id, topic, lesson_content)
             formatted_lesson = format_for_whatsapp(lesson_content, user.age)
             
@@ -667,8 +679,66 @@ CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. B
 
 message_handler = MessageHandler()
 
-def process_whatsapp_message(db: Session, phone_number: str, message: str) -> str:
-    return message_handler.process_message(db, phone_number, message)
+def process_whatsapp_message(db: Session, phone_number: str, message: str, for_audio: bool = False) -> str:
+    """Process a WhatsApp message. When for_audio is True, LLM/RAG prompts ask for spoken-style output."""
+    return message_handler.process_message(db, phone_number, message, for_audio=for_audio)
+
+
+def process_whatsapp_message_request_audio(db: Session, phone_number: str, message: str) -> dict:
+    """
+    Handle /audio <topic> or /audio next: run lesson/next with for_audio=True, run TTS, return
+    dict with same shape as process_whatsapp_audio: {text, audio_segments?, tts_failed?, ...}.
+    Used when user sends a text message that explicitly requests audio.
+    """
+    msg = message.strip()
+    msg_lower = msg.lower()
+    if msg_lower == "/audio next" or msg_lower.startswith("/audio next"):
+        response_text = process_whatsapp_message(db, phone_number, "/next", for_audio=True)
+    elif msg_lower.startswith("/audio "):
+        topic = msg[7:].strip()
+        if not topic:
+            return {"text": "Please specify a topic. Try /audio photosynthesis or /audio cells. 📚"}
+        response_text = process_whatsapp_message(db, phone_number, f"/lesson {topic}", for_audio=True)
+    else:
+        return {"text": "Use /audio <topic> for an audio lesson or /audio next for the next part. 📚"}
+
+    result = {"text": response_text}
+    user = get_user_by_phone(db, phone_number)
+    if not user:
+        user = create_user(db, phone_number)
+    if not user.is_onboarded:
+        return result
+    # Set lesson title for audio header (e.g. "📚 Lesson: Microbes")
+    if msg_lower == "/audio next" or msg_lower.startswith("/audio next"):
+        current_lesson = get_current_lesson(db, user.id)
+        result["lesson_title"] = clean_topic_title(current_lesson.topic) if current_lesson else "Next part"
+    elif msg_lower.startswith("/audio "):
+        topic = msg[7:].strip()
+        if topic:
+            result["lesson_title"] = clean_topic_title(topic)
+    # Don't synthesize error messages as audio - send as text only
+    if response_text.strip().lower().startswith("sorry,") or "trouble creating" in response_text.lower() or "trouble preparing" in response_text.lower():
+        result["tts_failed"] = True
+        logger.info("Skipping TTS for error response; sending as text")
+        return result
+    try:
+        voice = tts_service.get_voice_for_age(user.age if user.age else 10)
+        age = user.age if user.age else 10
+        segments = synthesize_speech_chunked(response_text, voice, age)
+        if segments:
+            result["audio_segments"] = segments
+            if len(segments) == 1:
+                result["audio_bytes"] = segments[0][0]
+                result["audio_content_type"] = segments[0][1]
+            logger.info(f"/audio response: {len(segments)} segment(s)")
+        else:
+            result["tts_failed"] = True
+            logger.warning("TTS failed for /audio request; text backup will be sent")
+    except Exception as e:
+        result["tts_failed"] = True
+        logger.error(f"TTS failed for /audio request: {e}; text backup will be sent")
+    return result
+
 
 async def process_whatsapp_audio(
     db: Session, 
@@ -799,27 +869,78 @@ async def process_whatsapp_audio(
         if not uses_voice_format and user.is_onboarded:
             logger.info("Voice message doesn't use recommended format 'teach me about <topic>', will try keyword fallback")
         
-        response_text = process_whatsapp_message(db, phone_number, transcribed_text)
+        # Send loading message for voice commands (after transcription, before processing)
+        if twilio_client and uses_voice_format:
+            try:
+                import os
+                twilio_phone = os.getenv("TWILIO_PHONE_NUMBER")
+                if twilio_phone:
+                    from_twilio = f"whatsapp:{twilio_phone}" if not twilio_phone.startswith("whatsapp:") else twilio_phone
+                    to_user = f"whatsapp:{phone_number}" if not phone_number.startswith("whatsapp:") else phone_number
+                    if not to_user.startswith("whatsapp:+"):
+                        to_user = to_user.replace("whatsapp:", "whatsapp:+")
+                    
+                    loading_text = None
+                    if transcribed_lower.startswith("teach me about ") or transcribed_lower.startswith("lesson "):
+                        topic = transcribed_text[len("teach me about " if transcribed_lower.startswith("teach me about ") else "lesson "):].strip()
+                        if topic:
+                            loading_text = f"⏳ Loading lesson: {topic.title()}"
+                    elif transcribed_lower.strip() == "next" or transcribed_lower.startswith("next "):
+                        loading_text = "⏳ Loading next part..."
+                    elif transcribed_lower.startswith("quiz"):
+                        loading_text = "⏳ Loading quiz..."
+                    
+                    if loading_text:
+                        twilio_client.messages.create(
+                            from_=from_twilio,
+                            to=to_user,
+                            body=loading_text,
+                        )
+                        logger.info(f"Sent loading message for voice: {loading_text}")
+            except Exception as load_err:
+                logger.warning(f"Failed to send loading message for voice: {load_err}")
+        
+        for_audio = return_audio and user.is_onboarded
+        response_text = process_whatsapp_message(db, phone_number, transcribed_text, for_audio=for_audio)
         
         result = {'text': response_text}
-        
-        # Generate audio response if requested and user is onboarded
+        # Don't synthesize error messages as audio - send as text only
+        if response_text.strip().lower().startswith("sorry,") or "trouble creating" in response_text.lower() or "trouble preparing" in response_text.lower():
+            result["tts_failed"] = True
+            logger.info("Skipping TTS for error response (voice); sending as text")
+            return result
+        # Set lesson title for audio header (e.g. "📚 Lesson: Microbes")
+        if transcribed_lower.startswith("teach me about "):
+            topic = transcribed_text[len("teach me about "):].strip()
+            if topic:
+                result["lesson_title"] = clean_topic_title(topic)
+        elif transcribed_lower.startswith("lesson "):
+            topic = transcribed_text[len("lesson "):].strip()
+            if topic:
+                result["lesson_title"] = clean_topic_title(topic)
+        elif transcribed_lower.strip() == "next" or transcribed_lower.startswith("next "):
+            current_lesson = get_current_lesson(db, user.id)
+            result["lesson_title"] = clean_topic_title(current_lesson.topic) if current_lesson else "Next part"
+        # Generate audio response if requested and user is onboarded (chunked so full paragraph is sent as multiple voice notes)
+        # Fallback: result['text'] is always set above — when TTS fails, caller should send text instead.
         if return_audio and user.is_onboarded:
             try:
                 voice = tts_service.get_voice_for_age(user.age if user.age else 10)
-                
-                logger.info(f"Generating audio response (voice: {voice}, age: {user.age})...")
-                audio_result = synthesize_speech(response_text, voice, user.age if user.age else 10)
-                
-                if audio_result:
-                    audio_bytes, audio_content_type = audio_result
-                    result['audio_bytes'] = audio_bytes
-                    result['audio_content_type'] = audio_content_type
-                    logger.info(f"Audio response generated: {len(audio_bytes)} bytes")
+                age = user.age if user.age else 10
+                logger.info(f"Generating chunked audio response (voice: {voice}, age: {age})...")
+                segments = synthesize_speech_chunked(response_text, voice, age)
+                if segments:
+                    result['audio_segments'] = segments
+                    if len(segments) == 1:
+                        result['audio_bytes'] = segments[0][0]
+                        result['audio_content_type'] = segments[0][1]
+                    logger.info(f"Audio response: {len(segments)} segment(s)")
                 else:
-                    logger.warning("Failed to generate audio response, returning text only")
+                    result['tts_failed'] = True
+                    logger.warning("TTS failed (no segments); text backup will be sent instead")
             except Exception as e:
-                logger.error(f"Error generating audio response: {e}")
+                result['tts_failed'] = True
+                logger.error(f"Error generating audio response: {e}; text backup will be sent instead")
         
         return result
         

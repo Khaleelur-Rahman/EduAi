@@ -5,14 +5,14 @@ from contextlib import asynccontextmanager
 from typing import Dict, Any
 from datetime import datetime, timedelta
 
-from fastapi import FastAPI, Request, Depends, HTTPException, Form
+from fastapi import FastAPI, Request, Depends, HTTPException, Form, BackgroundTasks
 from fastapi.responses import Response, FileResponse
 from sqlalchemy.orm import Session
 from twilio.twiml.messaging_response import MessagingResponse
 from twilio.rest import Client as TwilioClient
 
 from .db import get_db, create_tables
-from .handlers import process_whatsapp_message, process_whatsapp_audio
+from .handlers import process_whatsapp_message, process_whatsapp_audio, process_whatsapp_message_request_audio
 from .llm import initialize_llm
 from .rag import initialize_rag
 from .audio import initialize_audio_services
@@ -29,8 +29,105 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
-TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN") 
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
+
+def _whatsapp_from(number: str) -> str:
+    """Return 'whatsapp:+...' in E.164 for Twilio WhatsApp. Handles numbers with or without leading +."""
+    if not number:
+        return ""
+    n = (number or "").strip().replace("whatsapp:", "").strip()
+    if not n:
+        return ""
+    if not n.startswith("+"):
+        n = "+" + n
+    return f"whatsapp:{n}"
+
+def _send_loading_message(phone_number: str, command_type: str, topic: str = None) -> None:
+    """Send an immediate loading message via REST API for better UX."""
+    if not TWILIO_CLIENT or not TWILIO_PHONE_NUMBER:
+        return
+    
+    try:
+        from_twilio = _whatsapp_from(TWILIO_PHONE_NUMBER)
+        to_user = _whatsapp_from(phone_number) or f"whatsapp:{phone_number}"
+        
+        if command_type == "lesson":
+            loading_text = f"⏳ Loading lesson: {topic.title()}" if topic else "⏳ LOADING LESSON..."
+        elif command_type == "next":
+            loading_text = "⏳ Loading next part..."
+        elif command_type == "quiz":
+            loading_text = "⏳ Loading quiz..."
+        else:
+            loading_text = "⏳ LOADING..."
+        
+        TWILIO_CLIENT.messages.create(
+            from_=from_twilio,
+            to=to_user,
+            body=loading_text,
+        )
+        logger.info(f"Sent loading message: {loading_text}")
+    except Exception as e:
+        logger.warning(f"Failed to send loading message: {e}")
+
+def _detect_command_and_send_loading(phone_number: str, message: str) -> None:
+    """Detect lesson/quiz/next/audio commands and send appropriate loading message."""
+    if not message or not message.strip():
+        return
+    
+    msg_lower = message.strip().lower()
+    msg_stripped = message.strip()
+    
+    # Detect /next command FIRST (before /lesson to avoid confusion)
+    if msg_lower == "/next" or msg_lower.startswith("/next "):
+        _send_loading_message(phone_number, "next")
+        return
+    
+    # Detect /audio next
+    if msg_lower == "/audio next" or msg_lower.startswith("/audio next "):
+        _send_loading_message(phone_number, "next")
+        return
+    
+    # Detect /audio commands
+    if msg_lower.startswith("/audio "):
+        topic = msg_stripped[7:].strip()
+        if topic and topic.lower() != "next":
+            _send_loading_message(phone_number, "lesson", topic)
+            return
+    
+    # Detect /lesson command
+    if msg_lower.startswith("/lesson "):
+        topic = msg_stripped[7:].strip()
+        if topic:
+            _send_loading_message(phone_number, "lesson", topic)
+            return
+    
+    # Detect /quiz command
+    if msg_lower.startswith("/quiz"):
+        _send_loading_message(phone_number, "quiz")
+        return
+    
+    # Detect voice-friendly formats
+    if msg_lower.startswith("teach me about "):
+        topic = msg_stripped[len("teach me about "):].strip()
+        if topic:
+            _send_loading_message(phone_number, "lesson", topic)
+            return
+    
+    if msg_lower.startswith("lesson "):
+        topic = msg_stripped[len("lesson "):].strip()
+        if topic and topic.lower() != "next":
+            _send_loading_message(phone_number, "lesson", topic)
+            return
+    
+    # Detect plain "next" (voice format)
+    if msg_lower == "next" or (msg_lower.startswith("next ") and len(msg_lower.split()) <= 2):
+        _send_loading_message(phone_number, "next")
+        return
+    
+    if msg_lower.startswith("quiz"):
+        _send_loading_message(phone_number, "quiz")
+        return
 
 if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER]):
     logger.warning("Twilio configuration not found. Please set environment variables.")
@@ -42,7 +139,11 @@ else:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting EduBot application...")
-    
+    base_url = os.getenv("BASE_URL")
+    if base_url:
+        logger.info("BASE_URL set: %s (media URLs will use this)", base_url.rstrip("/"))
+    else:
+        logger.warning("BASE_URL not set; media URLs will use webhook request host (set BASE_URL for Twilio media to work behind tunnels)")
     create_tables()
     logger.info("Database tables created/verified")
     try:
@@ -112,34 +213,34 @@ async def serve_audio(audio_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Audio file expired")
     
     content_type = audio_data.get('content_type', 'audio/mpeg')
-    
+    audio_bytes = audio_data['bytes']
     return Response(
-        content=audio_data['bytes'],
+        content=audio_bytes,
         media_type=content_type,
         headers={
             'Content-Disposition': f'inline; filename="lesson_{audio_id}.mp3"',
-            'Cache-Control': 'no-cache'
+            'Content-Length': str(len(audio_bytes)),
+            'Cache-Control': 'no-cache',
         }
     )
 
 def _get_base_url(request: Request) -> str:
     """Get the base URL of the server from the request.
-    Supports ngrok, proxies, and direct access.
+    Supports ngrok, cloudflared, and direct access.
+    Prefer BASE_URL so media URLs work when webhook is behind a different tunnel.
     """
     base_url = os.getenv("BASE_URL")
     if base_url:
-        return base_url.rstrip('/')
-    
-    # Fallback: construct from request
-    # Check for forwarded protocol (for ngrok/proxies)
+        base_url = base_url.rstrip("/")
+        logger.debug(f"Using BASE_URL for media: {base_url}")
+        return base_url
+    # Fallback: construct from request (same host as webhook)
     scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
     if not scheme:
         scheme = "https" if request.url.port == 443 else "http"
-    
     host = request.headers.get("x-forwarded-host") or request.headers.get("host") or "localhost:8000"
-    
     base_url = f"{scheme}://{host}"
-    logger.info(f"Generated base URL: {base_url}")
+    logger.info(f"Using request host for media URL: {base_url}")
     return base_url
 
 def _store_temp_audio(audio_bytes: bytes, content_type: str) -> str:
@@ -162,6 +263,191 @@ def _store_temp_audio(audio_bytes: bytes, content_type: str) -> str:
     
     logger.info(f"Stored temporary audio file: {audio_id} ({len(audio_bytes)} bytes)")
     return audio_id
+
+def _send_response_via_rest(request_or_base_url, phone_number: str, response) -> None:
+    """Send response via REST API (for background processing).
+    request_or_base_url can be a Request object or a string base_url.
+    """
+    if not TWILIO_CLIENT or not TWILIO_PHONE_NUMBER:
+        logger.warning("Twilio not configured, cannot send via REST")
+        return
+    
+    from_twilio = _whatsapp_from(TWILIO_PHONE_NUMBER)
+    to_user = _whatsapp_from(phone_number) or f"whatsapp:{phone_number}"
+    
+    # Extract base_url from request object or use string directly
+    if hasattr(request_or_base_url, 'base_url'):
+        base_url = request_or_base_url.base_url
+    elif isinstance(request_or_base_url, str):
+        base_url = request_or_base_url
+    else:
+        base_url = _get_base_url(request_or_base_url)
+    
+    if isinstance(response, dict):
+        text = response.get("text", "")
+        tts_failed = response.get("tts_failed", False)
+        if tts_failed and text:
+            # Send error text
+            try:
+                TWILIO_CLIENT.messages.create(
+                    from_=from_twilio,
+                    to=to_user,
+                    body=text,
+                )
+                logger.info(f"Sent error text via REST ({len(text)} chars)")
+            except Exception as e:
+                logger.error(f"Failed to send error text via REST: {e}")
+        elif response.get("audio_segments"):
+            # Send audio segments
+            segments = response["audio_segments"]
+            try:
+                audio_ids = []
+                for (seg_bytes, seg_ct) in segments:
+                    aid = _store_temp_audio(seg_bytes, seg_ct or "audio/mpeg")
+                    audio_ids.append(aid)
+                urls = [f"{base_url}/audio/{aid}" for aid in audio_ids]
+                logger.info(f"Media base URL: {base_url} (first audio: {urls[0][:80]}...)")
+                
+                import time
+                send_start = time.time()
+                sent_count = 0
+                for i in range(len(urls)):
+                    try:
+                        audio_start = time.time()
+                        TWILIO_CLIENT.messages.create(
+                            from_=from_twilio,
+                            to=to_user,
+                            media_url=[urls[i]],
+                        )
+                        sent_count += 1
+                        logger.info(f"Audio segment {i + 1} sent in {time.time() - audio_start:.2f}s")
+                    except Exception as rest_err:
+                        logger.warning(f"Audio segment {i + 1} failed: {rest_err}")
+                
+                if sent_count:
+                    total_send_time = time.time() - send_start
+                    logger.info(f"Sent {sent_count} of {len(urls)} audio segment(s) in {total_send_time:.2f}s total")
+            except Exception as e:
+                logger.error(f"Error preparing audio response: {e}")
+                if text:
+                    try:
+                        TWILIO_CLIENT.messages.create(from_=from_twilio, to=to_user, body=text)
+                    except:
+                        pass
+        elif response.get("audio_bytes"):
+            # Single audio segment
+            try:
+                audio_id = _store_temp_audio(
+                    response["audio_bytes"],
+                    response.get("audio_content_type", "audio/mpeg"),
+                )
+                audio_url = f"{base_url}/audio/{audio_id}"
+                TWILIO_CLIENT.messages.create(
+                    from_=from_twilio,
+                    to=to_user,
+                    media_url=[audio_url],
+                )
+                logger.info(f"Sent single audio via REST: {audio_url}")
+            except Exception as e:
+                logger.error(f"Error sending audio via REST: {e}")
+                if text:
+                    try:
+                        TWILIO_CLIENT.messages.create(from_=from_twilio, to=to_user, body=text)
+                    except:
+                        pass
+        else:
+            # Plain text
+            if text:
+                try:
+                    TWILIO_CLIENT.messages.create(from_=from_twilio, to=to_user, body=text)
+                    logger.info(f"Sent text response via REST ({len(text)} chars)")
+                except Exception as e:
+                    logger.error(f"Failed to send text via REST: {e}")
+    else:
+        # String response
+        try:
+            TWILIO_CLIENT.messages.create(from_=from_twilio, to=to_user, body=str(response))
+            logger.info(f"Sent text response via REST ({len(str(response))} chars)")
+        except Exception as e:
+            logger.error(f"Failed to send text via REST: {e}")
+
+def _apply_audio_or_fallback_response(request: Request, phone_number: str, response: dict, twiml_response) -> None:
+    """Apply dict response (from process_whatsapp_audio or process_whatsapp_message_request_audio) to twiml_response."""
+    text = response.get("text", "")
+    tts_failed = response.get("tts_failed", False)
+    if tts_failed and text:
+        if text.strip().lower().startswith("sorry,") or "trouble" in text.lower():
+            twiml_response.message(text)
+        else:
+            twiml_response.message("Audio couldn't be generated. Here's your lesson:\n\n" + text)
+        logger.info(f"TTS fallback: sent text backup ({len(text)} chars)")
+    elif response.get("audio_segments"):
+        segments = response["audio_segments"]
+        try:
+            base_url = _get_base_url(request)
+            audio_ids = []
+            for (seg_bytes, seg_ct) in segments:
+                aid = _store_temp_audio(seg_bytes, seg_ct or "audio/mpeg")
+                audio_ids.append(aid)
+            urls = [f"{base_url}/audio/{aid}" for aid in audio_ids]
+            logger.info(f"Media base URL: {base_url} (first audio: {urls[0][:80]}...)")
+            # Send all segments via REST in order (0, 1, 2, ...) so the intro (segment 0)
+            # is delivered first. Using TwiML for segment 0 and REST for the rest can cause
+            # the webhook reply to be delivered last, making the intro appear as the latest message.
+            if TWILIO_CLIENT and TWILIO_PHONE_NUMBER and urls:
+                import time
+                send_start = time.time()
+                from_twilio = _whatsapp_from(TWILIO_PHONE_NUMBER)
+                to_user = _whatsapp_from(phone_number) or f"whatsapp:{phone_number}"
+                sent_count = 0
+                for i in range(len(urls)):
+                    try:
+                        audio_start = time.time()
+                        TWILIO_CLIENT.messages.create(
+                            from_=from_twilio,
+                            to=to_user,
+                            media_url=[urls[i]],
+                        )
+                        sent_count += 1
+                        logger.info(f"Audio segment {i + 1} sent in {time.time() - audio_start:.2f}s")
+                    except Exception as rest_err:
+                        logger.warning(
+                            "Audio segment %s failed (Twilio 21212): %s", i + 1, rest_err
+                        )
+                if sent_count:
+                    total_send_time = time.time() - send_start
+                    logger.info(f"Sent {sent_count} of {len(urls)} audio segment(s) in {total_send_time:.2f}s total")
+                # Return empty TwiML so Twilio does not send a second reply; user gets only REST messages in order.
+                return
+            # Fallback if Twilio not configured: use TwiML for first segment only
+            msg = twiml_response.message()
+            msg.media(urls[0])
+            if len(segments) > 1:
+                msg.body(f"Here's your lesson in {len(segments)} parts.")
+            logger.info(f"Prepared chunked audio response: {len(urls)} URL(s) (TwiML fallback)")
+        except Exception as e:
+            logger.error(f"Error preparing chunked audio response: {e}")
+            if text:
+                twiml_response.message(text)
+    elif response.get("audio_bytes"):
+        try:
+            audio_id = _store_temp_audio(
+                response["audio_bytes"],
+                response.get("audio_content_type", "audio/mpeg"),
+            )
+            base_url = _get_base_url(request)
+            audio_url = f"{base_url}/audio/{audio_id}"
+            logger.info(f"Media base URL: {base_url}")
+            msg = twiml_response.message()
+            msg.media(audio_url)
+            logger.info(f"Prepared audio response: {audio_url}")
+        except Exception as e:
+            logger.error(f"Error preparing audio response: {e}")
+            if text:
+                twiml_response.message(text)
+    else:
+        if text:
+            twiml_response.message(text)
 
 @app.get("/health")
 async def health_check():
@@ -208,6 +494,24 @@ async def health_check():
     
     return health_status
 
+def _process_message_in_background(
+    phone_number: str,
+    body_text: str,
+    base_url: str,
+    db: Session
+) -> None:
+    """Process message and send response via REST API in background."""
+    try:
+        if body_text.strip().lower().startswith("/audio"):
+            response = process_whatsapp_message_request_audio(db, phone_number, body_text)
+        else:
+            response = process_whatsapp_message(db, phone_number, body_text)
+        
+        # Send response via REST API (pass base_url as string)
+        _send_response_via_rest(base_url, phone_number, response)
+    except Exception as e:
+        logger.error(f"Error in background message processing: {e}")
+
 @app.post("/whatsapp")
 async def whatsapp_webhook(
     request: Request,
@@ -217,6 +521,7 @@ async def whatsapp_webhook(
     NumMedia: str = Form("0"),
     MediaUrl0: str = Form(None),
     MediaContentType0: str = Form(None),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db)
 ):
     try:
@@ -243,39 +548,7 @@ async def whatsapp_webhook(
                 
                 if response:
                     twiml_response = MessagingResponse()
-                    
-                    text = response if isinstance(response, str) else response.get('text', '')
-                    
-                    if isinstance(response, dict) and 'audio_bytes' in response:
-                        try:
-                            audio_id = _store_temp_audio(
-                                response['audio_bytes'],
-                                response.get('audio_content_type', 'audio/mpeg')
-                            )
-                            
-                            base_url = _get_base_url(request)
-                            audio_url = f"{base_url}/audio/{audio_id}"
-                            
-                            logger.info(f"Generated audio URL: {audio_url}")
-                            logger.info(f"Audio file will be accessible at: {audio_url}")
-                            
-                            message = twiml_response.message()
-                            message.media(audio_url)
-                            
-                            if text:
-                                logger.info(f"Sending audio response with text backup: {len(text)} characters")
-                            
-                            logger.info(f"Successfully prepared audio response for Twilio (audio URL: {audio_url})")
-                            
-                        except Exception as e:
-                            logger.error(f"Error preparing audio response: {e}")
-                            if text:
-                                twiml_response.message(text)
-                    else:
-                        if text:
-                            twiml_response.message(text)
-                            logger.info(f"Sending text response for audio message: {len(text)} characters")
-                    
+                    _apply_audio_or_fallback_response(request, phone_number, response, twiml_response)
                     return Response(
                         content=str(twiml_response),
                         media_type="application/xml"
@@ -291,6 +564,29 @@ async def whatsapp_webhook(
         body_text = Body or ""
         logger.info(f"Received WhatsApp message from {From}: {body_text[:100]}...")
         
+        # Check if this is a command that needs loading message + background processing
+        msg_lower = body_text.strip().lower()
+        is_command = (
+            msg_lower.startswith("/audio") or
+            msg_lower.startswith("/lesson") or
+            msg_lower.startswith("/next") or
+            msg_lower.startswith("/quiz") or
+            msg_lower.startswith("teach me about") or
+            msg_lower.startswith("lesson ") or
+            (msg_lower.strip() == "next" or (msg_lower.startswith("next ") and len(msg_lower.split()) <= 2)) or
+            msg_lower.startswith("quiz")
+        )
+        
+        if is_command:
+            # Send loading message immediately
+            _detect_command_and_send_loading(phone_number, body_text)
+            # Extract base URL before background task (request may not be available in background)
+            base_url = _get_base_url(request)
+            # Process in background and send via REST API
+            background_tasks.add_task(_process_message_in_background, phone_number, body_text, base_url, db)
+            # Return empty TwiML immediately so webhook responds fast
+            return Response(content=str(MessagingResponse()), media_type="application/xml")
+        
         if body_text.strip().lower().startswith("join ") and TWILIO_CLIENT and TWILIO_PHONE_NUMBER:
             logger.info("Detected sandbox join message. Sending proactive welcome.")
             try:
@@ -301,34 +597,37 @@ async def whatsapp_webhook(
                     from_=f"whatsapp:{TWILIO_PHONE_NUMBER}",
                     to=f"whatsapp:{phone_number}"
                 )
-                # Return empty TwiML so Twilio can still send its sandbox confirmation
                 return Response(content=str(MessagingResponse()), media_type="application/xml")
             except Exception as send_err:
                 logger.error(f"Failed to send proactive welcome: {str(send_err)}")
-                # Fall through to normal flow
+                pass
 
-        response_text = process_whatsapp_message(db, phone_number, body_text)
+        # Non-command messages: process normally and return TwiML
+        if body_text.strip().lower().startswith("/audio"):
+            response = process_whatsapp_message_request_audio(db, phone_number, body_text)
+        else:
+            response = process_whatsapp_message(db, phone_number, body_text)
 
         twiml_response = MessagingResponse()
-        twiml_response.message(response_text)
-        
-        logger.info(f"Sending response to {phone_number}: {response_text[:100]}... (Length: {len(response_text)} chars)")
-        
+        if isinstance(response, dict):
+            _apply_audio_or_fallback_response(request, phone_number, response, twiml_response)
+        else:
+            twiml_response.message(response)
+
+        logger.info(f"Sending response to {phone_number}")
         return Response(
-            content=str(twiml_response), 
+            content=str(twiml_response),
             media_type="application/xml"
         )
     
     except Exception as e:
         logger.error(f"Error processing WhatsApp webhook: {str(e)}")
-        
         twiml_response = MessagingResponse()
         twiml_response.message(
             "Sorry, I'm experiencing technical difficulties. Please try again in a moment! 🔧"
         )
-        
         return Response(
-            content=str(twiml_response), 
+            content=str(twiml_response),
             media_type="application/xml"
         )
 

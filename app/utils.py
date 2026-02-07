@@ -3,6 +3,13 @@ import json
 from typing import List, Dict, Any, Optional
 
 
+def strip_think_tags(text: str) -> str:
+    """Remove <think>...</think> blocks from LLM output (Qwen/Cerebras thinking tokens)."""
+    if not text or not text.strip():
+        return text
+    return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE).strip()
+
+
 def clean_whatsapp_formatting(text: str) -> str:
     """Clean up formatting issues in WhatsApp messages."""
     # Replace double asterisks with single asterisks (WhatsApp uses single * for bold)
@@ -37,13 +44,14 @@ def clean_whatsapp_formatting(text: str) -> str:
     return text.strip()
 
 def format_for_whatsapp(text: str, age_group: int) -> str:
-    # First clean up formatting issues
+    # Strip LLM thinking/reasoning blocks (e.g. <think>...</think>) before presenting to user
+    text = strip_think_tags(text)
+    # Clean up formatting issues
     text = clean_whatsapp_formatting(text)
     
     formatted_text = apply_whatsapp_formatting(text)
 
     formatted_text = improve_readability(formatted_text)
-    print(f"Improved readability: {formatted_text}")
     
     return formatted_text
 

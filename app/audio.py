@@ -1,10 +1,11 @@
 import os
+import re
 import logging
 import io
 import tempfile
 import asyncio
 import concurrent.futures
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 from pathlib import Path
 import requests
 
@@ -210,10 +211,11 @@ class TTSService:
             Tuple of (audio_bytes, content_type) or None if synthesis fails
         """
         try:
+            text = self._text_to_audio_friendly(text)
             text = self._adjust_text_for_age(text, age_group)
             
             if self.use_openai and self.openai_client:
-                return self._synthesize_openai(text, voice)
+                return self._synthesize_openai(text, voice, age_group)
             elif self.edge_tts:
                 return self._synthesize_edge_tts(text, voice, age_group)
             else:
@@ -222,6 +224,65 @@ class TTSService:
         except Exception as e:
             logger.error(f"Error during TTS synthesis: {e}")
             return None
+    
+    def _text_to_audio_friendly(self, text: str) -> str:
+        """
+        Transform written/WhatsApp-formatted text so it reads naturally when spoken.
+        - Removes or shortens headers and markdown that sound awkward aloud
+        - Converts bullets and lists to fluent sentence structure
+        - Strips UI prompts or turns them into short spoken cues
+        - Removes emojis and excessive punctuation
+        """
+        if not text or not text.strip():
+            return text
+        t = text.strip()
+        # Remove common UI/instruction lines that are for reading, not listening
+        t = re.sub(
+            r'_Type\s*`/next`[^_]*_',
+            ' Say "Next" to continue.',
+            t,
+            flags=re.IGNORECASE,
+        )
+        t = re.sub(
+            r'_Type\s*`/[^`]+`[^_]*_',
+            '',
+            t,
+            flags=re.IGNORECASE,
+        )
+        t = re.sub(r'_[^_]*Type\s+[^_]+_[^\n]*', '', t, flags=re.IGNORECASE)
+        # Turn "Lesson: Topic" / "*Topic - Part N*" into spoken form
+        t = re.sub(r'📚\s*\*Lesson:\s*([^*]+)\*', r'Lesson: \1.', t, flags=re.IGNORECASE)
+        t = re.sub(r'\*([^*]+)\s*-\s*Part\s+(\d+)\*', r'Part \2. \1.', t, flags=re.IGNORECASE)
+        # Strip bold/italic: *x* and _x_ -> x
+        t = re.sub(r'\*([^*]+)\*', r'\1', t)
+        t = re.sub(r'_([^_]+)_', r'\1', t)
+        # Markdown headers: # ## ### -> treat as sentence (drop #, ensure period)
+        t = re.sub(r'^#+\s*([^\n#]+)\s*$', r'\1.', t, flags=re.MULTILINE)
+        t = re.sub(r'^#+\s*([^\n#]+)\s*\n', r'\1. ', t, flags=re.MULTILINE)
+        # Bullets at line start (• - *) -> "Next, ..." or just the text with period
+        def _bullet_to_sentence(match: re.Match) -> str:
+            rest = (match.group(1) or '').strip()
+            if not rest:
+                return ''
+            if rest.endswith('.'):
+                return rest + ' '
+            return rest.rstrip('.,;:') + '. '
+        t = re.sub(r'^[\s]*[•\-*]\s+([^\n]+)', _bullet_to_sentence, t, flags=re.MULTILINE)
+        # Numbered list lines "1. ..." -> keep as sentences
+        t = re.sub(r'^[\s]*\d+\.\s+([^\n]+)(?=\n|$)', lambda m: (m.group(1).strip().rstrip('.') or '') + '. ', t, flags=re.MULTILINE)
+        # Remove emojis (common ranges)
+        t = re.sub(r'[\U0001F300-\U0001F9FF\U00002700-\U000027BF]', '', t)
+        # Collapse multiple newlines to a single space so TTS doesn't over-pause
+        t = re.sub(r'\n\s*\n+', ' ', t)
+        t = re.sub(r'\n', ' ', t)
+        # Normalize spaces and remove space before period
+        t = re.sub(r' {2,}', ' ', t)
+        t = re.sub(r'\s+\.', '.', t)
+        t = t.strip()
+        # Ensure last character is sentence-ending if non-empty
+        if t and t[-1] not in '.!?':
+            t = t.rstrip(';:,') + '.'
+        return t
     
     def _adjust_text_for_age(self, text: str, age_group: int) -> str:
         """
@@ -232,7 +293,7 @@ class TTSService:
             pass
         return text
     
-    def _synthesize_openai(self, text: str, voice: str = "alloy") -> Optional[Tuple[bytes, str]]:
+    def _synthesize_openai(self, text: str, voice: str = "alloy", age_group: int = 10) -> Optional[Tuple[bytes, str]]:
         """Synthesize speech using OpenAI TTS API."""
         try:
             # Limit text length to keep audio clips short (30-60 seconds)
@@ -354,6 +415,123 @@ def transcribe_audio(audio_data: bytes, content_type: str = "audio/ogg") -> Opti
 def synthesize_speech(text: str, voice: str = "alloy", age_group: int = 10) -> Optional[Tuple[bytes, str]]:
     """Convenience function to synthesize speech."""
     return tts_service.synthesize(text, voice, age_group)
+
+def _chunk_text_for_audio(
+    text: str,
+    max_sentences_per_chunk: int = 4,
+    max_words_per_chunk: int = 120,
+) -> List[str]:
+    """
+    Split text into chunks that each end at a sentence boundary.
+    Each chunk has at most max_sentences_per_chunk sentences and at most max_words_per_chunk words,
+    so each audio segment is a complete thought and fits in one voice note.
+    """
+    if not text or not text.strip():
+        return []
+    text = text.strip()
+    # Split on sentence boundaries (. ! ?) followed by space or end
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    sentences = [s.strip() for s in sentences if s.strip()]
+    if not sentences:
+        return [text]
+    chunks = []
+    current: List[str] = []
+    current_words = 0
+    for sent in sentences:
+        n = len(sent.split())
+        # Start a new chunk if adding this sentence would exceed limits
+        if current and (
+            len(current) >= max_sentences_per_chunk
+            or current_words + n > max_words_per_chunk
+        ):
+            chunks.append(" ".join(current))
+            current = []
+            current_words = 0
+        current.append(sent)
+        current_words += n
+    if current:
+        chunks.append(" ".join(current))
+    return chunks
+
+def synthesize_speech_chunked(
+    text: str, voice: str = "alloy", age_group: int = 10, max_segments: int = 2
+) -> List[Tuple[bytes, str]]:
+    """
+    Synthesize text as at most max_segments audio segments, each ending at a sentence boundary.
+    Chunks are merged so the full lesson is delivered in at most max_segments voice notes.
+    Returns a list of (audio_bytes, content_type) per segment.
+    Synthesizes chunks in parallel for faster processing.
+    """
+    import time
+    start_time = time.time()
+    try:
+        full = tts_service._text_to_audio_friendly(text)
+        full = tts_service._adjust_text_for_age(full, age_group)
+        chunks = _chunk_text_for_audio(
+            full, max_sentences_per_chunk=4, max_words_per_chunk=120
+        )
+        if not chunks:
+            return []
+        # Merge into at most max_segments chunks (e.g. 2: intro + rest)
+        if len(chunks) > max_segments:
+            mid = (len(chunks) + 1) // 2
+            chunks = [" ".join(chunks[:mid]), " ".join(chunks[mid:])]
+        
+        # Synthesize chunks in parallel for faster processing
+        import concurrent.futures
+        results: List[Tuple[bytes, str]] = []
+        
+        def synthesize_chunk(chunk_idx: int, chunk_text: str) -> Optional[Tuple[bytes, str]]:
+            """Synthesize a single chunk."""
+            try:
+                if tts_service.use_openai and tts_service.openai_client:
+                    return tts_service._synthesize_openai(chunk_text, voice, age_group)
+                elif tts_service.edge_tts:
+                    return tts_service._synthesize_edge_tts(chunk_text, voice, age_group)
+                else:
+                    return None
+            except Exception as e:
+                logger.warning(f"Chunk {chunk_idx + 1} synthesis failed: {e}")
+                return None
+        
+        # Use ThreadPoolExecutor to synthesize chunks in parallel
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(chunks)) as executor:
+            futures = {
+                executor.submit(synthesize_chunk, i, chunk): i 
+                for i, chunk in enumerate(chunks)
+            }
+            # Collect results in order
+            chunk_results = [None] * len(chunks)
+            for future in concurrent.futures.as_completed(futures):
+                chunk_idx = futures[future]
+                try:
+                    result = future.result()
+                    chunk_results[chunk_idx] = result
+                except Exception as e:
+                    logger.warning(f"Chunk {chunk_idx + 1} future failed: {e}")
+                    chunk_results[chunk_idx] = None
+        
+        # Build results list in order, skipping failed chunks
+        for i, out in enumerate(chunk_results):
+            if out:
+                results.append(out)
+                logger.info(f"Chunk {i + 1}/{len(chunks)} synthesized ({len(out[0])} bytes)")
+            else:
+                logger.warning(f"Chunk {i + 1} synthesis failed, skipping")
+        
+        elapsed = time.time() - start_time
+        logger.info(f"TTS synthesis completed: {len(results)}/{len(chunks)} segments in {elapsed:.2f}s")
+        return results
+    except Exception as e:
+        logger.error(f"Error during chunked TTS synthesis: {e}")
+        return []
+
+def text_to_audio_friendly(text: str) -> str:
+    """
+    Transform written/WhatsApp-formatted text so it reads naturally when spoken.
+    Use this when you need audio-friendly text outside of TTS (e.g. for preview or tests).
+    """
+    return tts_service._text_to_audio_friendly(text)
 
 def initialize_audio_services():
     """Initialize audio services (STT and TTS)."""

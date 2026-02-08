@@ -51,20 +51,21 @@ class STTService:
             logger.error(f"Failed to load local Whisper model: {e}")
             self.local_whisper_model = None
     
-    def transcribe(self, audio_data: bytes, content_type: str = "audio/ogg") -> Optional[str]:
+    def transcribe(self, audio_data: bytes, content_type: str = "audio/ogg", language: Optional[str] = None) -> Optional[str]:
         """
         Transcribe audio to text.
         
         Args:
             audio_data: Audio file bytes
             content_type: MIME type of the audio (e.g., audio/ogg, audio/mpeg)
+            language: Optional language code (en, es, fr) - helps accuracy, auto-detected if None
         
         Returns:
             Transcribed text or None if transcription fails
         """
         try:
             if self.use_openai and self.openai_client:
-                return self._transcribe_openai(audio_data, content_type)
+                return self._transcribe_openai(audio_data, content_type, language)
             elif self.local_whisper_model:
                 return self._transcribe_local(audio_data, content_type)
             else:
@@ -74,20 +75,25 @@ class STTService:
             logger.error(f"Error during transcription: {e}")
             return None
     
-    def _transcribe_openai(self, audio_data: bytes, content_type: str) -> Optional[str]:
-        """Transcribe using OpenAI Whisper API."""
+    def _transcribe_openai(self, audio_data: bytes, content_type: str, language: Optional[str] = None) -> Optional[str]:
+        """Transcribe using OpenAI Whisper API. Language auto-detected if not provided."""
         try:
             audio_file = io.BytesIO(audio_data)
             audio_file.name = self._get_filename_from_content_type(content_type)
             
-            transcript = self.openai_client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file,
-                language="en"
-            )
+            # Whisper auto-detects language if not specified
+            params = {
+                "model": "whisper-1",
+                "file": audio_file,
+            }
+            if language:
+                params["language"] = language
+            
+            transcript = self.openai_client.audio.transcriptions.create(**params)
             
             text = transcript.text.strip()
-            logger.info(f"OpenAI transcription successful: {len(text)} characters")
+            detected_lang = getattr(transcript, 'language', None)
+            logger.info(f"OpenAI transcription successful ({detected_lang or 'auto'}): {len(text)} characters")
             return text
         except Exception as e:
             logger.error(f"OpenAI transcription failed: {e}")
@@ -197,15 +203,16 @@ class TTSService:
             logger.info("  2. Install edge-tts: pip install edge-tts (free, Python 3.12 compatible)")
             self.edge_tts = None
     
-    def synthesize(self, text: str, voice: str = "alloy", age_group: int = 10) -> Optional[Tuple[bytes, str]]:
+    def synthesize(self, text: str, voice: str = "alloy", age_group: int = 10, language: str = "en") -> Optional[Tuple[bytes, str]]:
         """
         Convert text to speech audio.
         
         Args:
             text: Text to convert to speech
             voice: Voice to use (for OpenAI: alloy, echo, fable, onyx, nova, shimmer)
-                   (for Coqui: not used, model has default voice)
+                   (for Edge TTS: will be auto-selected based on language and age)
             age_group: Age of the user (for adjusting speech characteristics)
+            language: Language code (en, es, fr) - affects voice selection
         
         Returns:
             Tuple of (audio_bytes, content_type) or None if synthesis fails
@@ -215,9 +222,9 @@ class TTSService:
             text = self._adjust_text_for_age(text, age_group)
             
             if self.use_openai and self.openai_client:
-                return self._synthesize_openai(text, voice, age_group)
+                return self._synthesize_openai(text, voice, age_group, language)
             elif self.edge_tts:
-                return self._synthesize_edge_tts(text, voice, age_group)
+                return self._synthesize_edge_tts(text, voice, age_group, language)
             else:
                 logger.error("No TTS service available")
                 return None
@@ -293,11 +300,14 @@ class TTSService:
             pass
         return text
     
-    def _synthesize_openai(self, text: str, voice: str = "alloy", age_group: int = 10) -> Optional[Tuple[bytes, str]]:
+    def _synthesize_openai(self, text: str, voice: str = "alloy", age_group: int = 10, language: str = "en") -> Optional[Tuple[bytes, str]]:
         """Synthesize speech using OpenAI TTS API."""
         try:
+            from .language import get_openai_voice_for_language_age
+            # Use language-aware voice selection
+            voice = get_openai_voice_for_language_age(language, age_group)
+            
             # Limit text length to keep audio clips short (30-60 seconds)
-            # Average speaking rate is ~150 words/min, so ~75-150 words = 30-60 seconds
             words = text.split()
             if len(words) > 150:
                 text = " ".join(words[:150]) + "..."
@@ -311,16 +321,16 @@ class TTSService:
             )
             
             audio_bytes = response.content
-            logger.info(f"OpenAI TTS synthesis successful: {len(audio_bytes)} bytes")
+            logger.info(f"OpenAI TTS synthesis successful ({language}): {len(audio_bytes)} bytes")
             return (audio_bytes, "audio/mpeg")
         except Exception as e:
             logger.error(f"OpenAI TTS synthesis failed: {e}")
             if self.edge_tts:
                 logger.info("Falling back to edge-tts...")
-                return self._synthesize_edge_tts(text, voice, age_group)
+                return self._synthesize_edge_tts(text, voice, age_group, language)
             return None
     
-    def _synthesize_edge_tts(self, text: str, voice: str = "alloy", age_group: int = 10) -> Optional[Tuple[bytes, str]]:
+    def _synthesize_edge_tts(self, text: str, voice: str = "alloy", age_group: int = 10, language: str = "en") -> Optional[Tuple[bytes, str]]:
         """Synthesize speech using edge-tts (Microsoft Edge TTS)."""
         if not self.edge_tts:
             return None
@@ -328,13 +338,14 @@ class TTSService:
         try:
             import asyncio
             import edge_tts
+            from .language import get_edge_voice_for_language_age
             
             words = text.split()
             if len(words) > 150:
                 text = " ".join(words[:150]) + "..."
                 logger.info(f"Text truncated to {len(words[:150])} words for shorter audio clip")
             
-            edge_voice = self._get_edge_voice_for_age(age_group)
+            edge_voice = get_edge_voice_for_language_age(language, age_group)
             
             async def generate_audio():
                 communicate = edge_tts.Communicate(text, edge_voice)
@@ -382,27 +393,10 @@ class TTSService:
             traceback.print_exc()
             return None
     
-    def _get_edge_voice_for_age(self, age_group: int) -> str:
-        """Get appropriate edge-tts voice for age group."""
-        # Microsoft Edge TTS voices (English US)
-        # Female voices: AriaNeural, JennyNeural, MichelleNeural
-        # Male voices: GuyNeural, RogerNeural, DavisNeural
-        if age_group <= 8:
-            return "en-US-AriaNeural"  # Softer, friendlier female voice
-        elif age_group <= 12:
-            return "en-US-JennyNeural"  # Clear, balanced female voice
-        else:
-            return "en-US-GuyNeural"  # More mature male voice
-    
-    def get_voice_for_age(self, age_group: int) -> str:
-        """Get appropriate voice for age group (OpenAI voices)."""
-        # OpenAI voices: alloy, echo, fable, onyx, nova, shimmer
-        if age_group <= 8:
-            return "nova"  # Softer, friendlier voice
-        elif age_group <= 12:
-            return "alloy"  # Balanced, clear voice
-        else:
-            return "onyx"  # More mature voice
+    def get_voice_for_age(self, age_group: int, language: str = "en") -> str:
+        """Get appropriate voice for age group and language (OpenAI voices)."""
+        from .language import get_openai_voice_for_language_age
+        return get_openai_voice_for_language_age(language, age_group)
 
 
 stt_service = STTService()
@@ -454,7 +448,7 @@ def _chunk_text_for_audio(
     return chunks
 
 def synthesize_speech_chunked(
-    text: str, voice: str = "alloy", age_group: int = 10, max_segments: int = 2
+    text: str, voice: str = "alloy", age_group: int = 10, max_segments: int = 2, language: str = "en"
 ) -> List[Tuple[bytes, str]]:
     """
     Synthesize text as at most max_segments audio segments, each ending at a sentence boundary.
@@ -485,9 +479,9 @@ def synthesize_speech_chunked(
             """Synthesize a single chunk."""
             try:
                 if tts_service.use_openai and tts_service.openai_client:
-                    return tts_service._synthesize_openai(chunk_text, voice, age_group)
+                    return tts_service._synthesize_openai(chunk_text, voice, age_group, language)
                 elif tts_service.edge_tts:
-                    return tts_service._synthesize_edge_tts(chunk_text, voice, age_group)
+                    return tts_service._synthesize_edge_tts(chunk_text, voice, age_group, language)
                 else:
                     return None
             except Exception as e:

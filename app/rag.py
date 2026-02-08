@@ -312,7 +312,7 @@ class RAGService:
     def create_rag_lesson_prompt(self, topic: str, retrieved_chunks: List[Dict[str, Any]], 
                                 age_group: int, user_name: str = "", 
                                 is_continuation: bool = False, previous_content: str = None,
-                                for_audio: bool = False) -> Tuple[str, str]:
+                                for_audio: bool = False, language: str = "en") -> Tuple[str, str]:
         """Create a prompt for generating a RAG-based lesson. When for_audio is True, instructs LLM to write for TTS."""
         
         if age_group <= 8:
@@ -328,6 +328,13 @@ class RAGService:
         
         context = "\n".join(context_parts)
         
+        # Language instruction
+        lang_instruction = ""
+        if language != "en":
+            from .language import get_language_name
+            lang_name = get_language_name(language, native=True)
+            lang_instruction = f"\n- Language: Generate the entire lesson in {lang_name} ({language.upper()}). All text, explanations, examples, and responses must be in {lang_name}."
+        
         if is_continuation and previous_content:
             # Continuation lesson - reference previous content, no example at start
             system_prompt = f"""You are an expert science teacher for children aged {age_group} years old.
@@ -337,7 +344,7 @@ Instructions:
 - Topic: {topic} (continuation)
 - Age group: {age_group} years old
 - Length: Keep it concise (under 1400 characters total)
-- Style: {style_guide}
+- Style: {style_guide}{lang_instruction}
 - Use the provided educational content as your source of information
 - Make sure all facts are accurate and age-appropriate
 
@@ -371,6 +378,13 @@ Important:
 
 AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for listening: use short, complete sentences; avoid markdown headers (##) and bullet lists—use flowing prose instead; do not include instructions like "Type /next"; use minimal or no emojis; write as if you are speaking to the student."""
 
+            # Add language instruction to user prompt as well for reinforcement
+            user_lang_note = ""
+            if language != "en":
+                from .language import get_language_name
+                lang_name = get_language_name(language, native=True)
+                user_lang_note = f"\n\nIMPORTANT: Write the entire continuation in {lang_name} ({language.upper()})."
+            
             user_prompt = f"""Continue teaching about {topic}. 
 
 Previous part of the lesson:
@@ -379,7 +393,7 @@ Previous part of the lesson:
 New educational content to use:
 {context}
 
-Continue the lesson naturally, referencing what was just covered and building on it!"""
+Continue the lesson naturally, referencing what was just covered and building on it!{user_lang_note}"""
         else:
             # New lesson - standard structure
             system_prompt = f"""You are an expert science teacher for children aged {age_group} years old.
@@ -389,7 +403,7 @@ Instructions:
 - Topic: {topic}
 - Age group: {age_group} years old
 - Length: Keep it concise (under 1400 characters total)
-- Style: {style_guide}
+- Style: {style_guide}{lang_instruction}
 - Use the provided educational content as your source of information
 - Make sure all facts are accurate and age-appropriate
 - Structure: Brief introduction, key explanation and a fun example
@@ -417,11 +431,18 @@ Important:
 
 AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for listening: use short, complete sentences; avoid markdown headers (##) and bullet lists—use flowing prose instead; do not include instructions like "Type /next"; use minimal or no emojis; write as if you are speaking to the student."""
 
+            # Add language instruction to user prompt as well for reinforcement
+            user_lang_note = ""
+            if language != "en":
+                from .language import get_language_name
+                lang_name = get_language_name(language, native=True)
+                user_lang_note = f"\n\nIMPORTANT: Write the entire lesson in {lang_name} ({language.upper()})."
+            
             user_prompt = f"""Please teach me about {topic} using this educational content:
 
 {context}
 
-Create a fun, engaging lesson that helps me understand {topic} better!"""
+Create a fun, engaging lesson that helps me understand {topic} better!{user_lang_note}"""
 
         return system_prompt, user_prompt
 
@@ -433,7 +454,7 @@ def initialize_rag():
 
 def get_rag_lesson(topic: str, age_group: int, user_name: str = "", 
                   current_chunk_id: str = None, previous_content: str = None,
-                  for_audio: bool = False) -> Tuple[str, str, Optional[str]]:
+                  for_audio: bool = False, language: str = "en") -> Tuple[str, str, Optional[str]]:
     """
     Generate a RAG-based lesson for the given topic.
     Returns (system_prompt, user_prompt, chunk_id) for lesson generation.
@@ -472,7 +493,7 @@ def get_rag_lesson(topic: str, age_group: int, user_name: str = "",
     system_prompt, user_prompt = rag_service.create_rag_lesson_prompt(
         topic, retrieved_chunks, age_group, user_name, 
         is_continuation=is_continuation, previous_content=previous_content,
-        for_audio=for_audio
+        for_audio=for_audio, language=language
     )
     
     return system_prompt, user_prompt, chunk_id

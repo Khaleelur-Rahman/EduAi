@@ -62,7 +62,7 @@ class LLMService:
     
     def generate_lesson(self, topic: str, age_group: int, user_name: str = "", 
                        is_continuation: bool = False, previous_content: str = None,
-                       for_audio: bool = False) -> str:
+                       for_audio: bool = False, language: str = "en") -> str:
         if not self._initialized:
             self.initialize()
         
@@ -72,7 +72,7 @@ class LLMService:
         
         system_prompt, user_prompt = self._create_lesson_prompt(
             topic, age_group, user_name, is_continuation=is_continuation, previous_content=previous_content,
-            for_audio=for_audio
+            for_audio=for_audio, language=language
         )
         
         try:
@@ -100,6 +100,13 @@ class LLMService:
             if len(lesson_content) > 1400:
                 logger.warning(f"Response too long ({len(lesson_content)} chars), retrying with stricter limit")
                 # Retry with a much stricter character limit
+                # Language instruction
+                lang_instruction = ""
+                if language != "en":
+                    from .language import get_language_name
+                    lang_name = get_language_name(language, native=True)
+                    lang_instruction = f"\n- Language: Generate the entire lesson in {lang_name} ({language.upper()}). All text, explanations, examples, and responses must be in {lang_name}."
+                
                 if is_continuation and previous_content:
                     retry_system_prompt = f"""You are an expert educator and tutor.
 You are continuing a lesson on {topic}. The student has already learned the previous part.
@@ -108,7 +115,7 @@ Instructions:
 - Topic: {topic} (continuation)
 - Age group: {age_group} years old
 - Length: Keep it VERY SHORT (under 1200 characters total - this is critical for WhatsApp delivery).
-- Style: Use simple language, clear examples, and everyday situations.
+- Style: Use simple language, clear examples, and everyday situations.{lang_instruction}
 
 CONTINUATION STRUCTURE:
 - Start by briefly referencing what was covered in the previous part (1-2 sentences)
@@ -139,7 +146,7 @@ Instructions:
 - Topic: {topic}
 - Age group: {age_group} years old
 - Length: Keep it VERY SHORT (under 1200 characters total - this is critical for WhatsApp delivery).
-- Style: Use simple language, clear examples, and everyday situations.
+- Style: Use simple language, clear examples, and everyday situations.{lang_instruction}
 - Structure: Brief introduction, key explanation, and one simple example
 
 CRITICAL FORMATTING RULES:
@@ -201,10 +208,19 @@ Continue the lesson naturally, referencing what was just covered and building on
             if lesson_content and text_without_emojis and not text_without_emojis.endswith(('.', '!', '?', ':', ';')):
                 logger.warning(f"Content appears truncated, attempting to complete: {lesson_content[-100:]}")
                 # Try to complete the truncated content
+                # Language instruction for completion
+                lang_instruction = ""
+                if language != "en":
+                    from .language import get_language_name
+                    lang_name = get_language_name(language, native=True)
+                    lang_instruction = f" Complete the text in {lang_name} ({language.upper()})."
+                
+                completion_system_prompt = f"Complete the following educational text naturally. Only provide the completion to finish the thought, not the full text. Make sure it ends with proper punctuation.{lang_instruction} Do not include any thinking tags or reasoning - only provide the completion text."
+                
                 completion_response = self.client.chat.completions.create(
                     model=self.model_name,
                     messages=[
-                        {"role": "system", "content": "Complete the following educational text naturally. Only provide the completion to finish the thought, not the full text. Make sure it ends with proper punctuation."},
+                        {"role": "system", "content": completion_system_prompt},
                         {"role": "user", "content": f"Complete this educational text (finish the thought naturally): {lesson_content[-300:]}"}
                     ],
                     max_completion_tokens=300,
@@ -215,6 +231,8 @@ Continue the lesson naturally, referencing what was just covered and building on
                 
                 if completion_response.choices[0].message.content:
                     completion = completion_response.choices[0].message.content.strip()
+                    # Strip think tags from completion
+                    completion = re.sub(r'<think>.*?</think>', '', completion, flags=re.DOTALL | re.IGNORECASE).strip()
                     # Remove any duplicate text at the start
                     if lesson_content.endswith(completion[:20]):
                         lesson_content = lesson_content.rstrip()
@@ -266,7 +284,7 @@ Continue the lesson naturally, referencing what was just covered and building on
     
     def _create_lesson_prompt(self, topic: str, age_group: int, user_name: str = "", 
                              is_continuation: bool = False, previous_content: str = None,
-                             for_audio: bool = False):
+                             for_audio: bool = False, language: str = "en"):
         if age_group <= 8:
             style_guide = "Use very simple words, short sentences, and examples with toys, animals, or games"
         elif age_group <= 12:
@@ -275,6 +293,13 @@ Continue the lesson naturally, referencing what was just covered and building on
             style_guide = "Use clear explanations with relatable examples and real-world situations"
         else:
             style_guide = "Use detailed explanations with comprehensive examples and professional contexts"
+        
+        # Language instruction
+        lang_instruction = ""
+        if language != "en":
+            from .language import get_language_name
+            lang_name = get_language_name(language, native=True)
+            lang_instruction = f"\n- Language: Generate the entire lesson in {lang_name} ({language.upper()}). All text, explanations, examples, and responses must be in {lang_name}."
         
         if is_continuation and previous_content:
             # Continuation lesson
@@ -285,7 +310,7 @@ Instructions:
 - Topic: {topic} (continuation)
 - Age group: {age_group} years old
 - Length: Keep it concise and focused (under 1400 characters total).
-- Style: {style_guide}.
+- Style: {style_guide}.{lang_instruction}
 
 CONTINUATION STRUCTURE:
 - Start by briefly referencing what was covered in the previous part (1-2 sentences)
@@ -310,12 +335,19 @@ IMPORTANT:
 
 AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for listening: use short, complete sentences; avoid markdown headers (##) and bullet lists—use flowing prose instead; do not include instructions like "Type /next"; use minimal or no emojis; write as if you are speaking to the student."""
             
+            # Add language instruction to user prompt as well for reinforcement
+            user_lang_note = ""
+            if language != "en":
+                from .language import get_language_name
+                lang_name = get_language_name(language, native=True)
+                user_lang_note = f"\n\nIMPORTANT: Write the entire continuation in {lang_name} ({language.upper()})."
+            
             user_prompt = f"""Continue teaching about {topic}. 
 
 Previous part of the lesson:
 {previous_content[:500]}
 
-Continue the lesson naturally, referencing what was just covered and building on it!"""
+Continue the lesson naturally, referencing what was just covered and building on it!{user_lang_note}"""
         else:
             # New lesson
             system_prompt = f"""You are an expert educator and tutor.
@@ -325,7 +357,7 @@ Instructions:
 - Topic: {topic}
 - Age group: {age_group} years old
 - Length: Keep it concise and focused (under 1400 characters total).
-- Style: {style_guide}.
+- Style: {style_guide}.{lang_instruction}
 - Structure:
    1. Brief introduction
    2. Key explanation (step by step, or definition + example)
@@ -356,8 +388,15 @@ IMPORTANT:
 
 AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for listening: use short, complete sentences; avoid markdown headers (##) and bullet lists—use flowing prose instead; do not include instructions like "Type /next"; use minimal or no emojis; write as if you are speaking to the student."""
             
+            # Add language instruction to user prompt as well for reinforcement
+            user_lang_note = ""
+            if language != "en":
+                from .language import get_language_name
+                lang_name = get_language_name(language, native=True)
+                user_lang_note = f"\n\nIMPORTANT: Write the entire lesson in {lang_name} ({language.upper()})."
+            
             greeting = ""
-            user_prompt = f"""{greeting}Please teach me about {topic}."""
+            user_prompt = f"""{greeting}Please teach me about {topic}.{user_lang_note}"""
         
         return system_prompt, user_prompt
     
@@ -477,11 +516,11 @@ llm_service = LLMService()
 
 def generate_lesson(topic: str, age_group: int, user_name: str = "", 
                    is_continuation: bool = False, previous_content: str = None,
-                   for_audio: bool = False) -> str:
+                   for_audio: bool = False, language: str = "en") -> str:
     return llm_service.generate_lesson(topic, age_group, user_name, 
                                       is_continuation=is_continuation, 
                                       previous_content=previous_content,
-                                      for_audio=for_audio)
+                                      for_audio=for_audio, language=language)
 
 def initialize_llm():
     llm_service.initialize()

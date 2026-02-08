@@ -1,6 +1,7 @@
 import re
 import json
 from typing import List, Dict, Any, Optional
+from .language import SUPPORTED_LANGUAGES, get_language_name
 
 
 def strip_think_tags(text: str) -> str:
@@ -152,7 +153,7 @@ def validate_learning_mode(mode_input: str) -> Optional[str]:
     return None
 
 
-def get_help_message(age_group: int) -> str:
+def get_help_message(age_group: int, language: str = "en") -> str:
     base_commands = """
 🤖 *EduBot Commands*
 
@@ -203,7 +204,227 @@ For voice messages, use this format:
 • Perfect for skill development and knowledge growth 📈
 """
     
+    # Translate messages based on language
+    if language != "en":
+        base_commands = _translate_help_message(base_commands, language)
+        additional = _translate_help_message(additional, language)
+    
     return format_for_whatsapp(base_commands + additional, age_group)
+
+
+def _translate_help_message(text: str, language: str) -> str:
+    """Translate help message to target language."""
+    translations = {
+        "es": {
+            "EduBot Commands": "Comandos de EduBot",
+            "/lesson <topic>": "/lección <tema>",
+            "Get a lesson on any topic.": "Obtén una lección sobre cualquier tema.",
+            "Continue to next part of lesson": "Continuar a la siguiente parte de la lección",
+            "Take a quiz on your current lesson": "Hacer un cuestionario sobre tu lección actual",
+            "Show this help message": "Mostrar este mensaje de ayuda",
+            "Voice Messages:": "Mensajes de Voz:",
+            "For voice messages, use this format:": "Para mensajes de voz, usa este formato:",
+            'Say "Teach me about <topic>"': 'Di "Enséñame sobre <tema>"',
+            'Say "Next" to continue': 'Di "Siguiente" para continuar',
+            'Say "Quiz" for a quiz': 'Di "Cuestionario" para un cuestionario',
+            'Say "Help" for help': 'Di "Ayuda" para ayuda',
+            "Tips for little learners:": "Consejos para pequeños aprendices:",
+            "Ask about anything you're curious about!": "¡Pregunta sobre cualquier cosa que te cause curiosidad!",
+            "Try science topics like:": "Prueba temas de ciencia como:",
+            "Use voice messages!": "¡Usa mensajes de voz!",
+            "I'll make it super fun and easy!": "¡Lo haré súper divertido y fácil!",
+            "Study Tips:": "Consejos de Estudio:",
+            "Ask about homework topics": "Pregunta sobre temas de tarea",
+            "Practice questions help you learn better!": "¡Las preguntas de práctica te ayudan a aprender mejor!",
+            "Study Smart:": "Estudia Inteligentemente:",
+            "Get help with exam topics": "Obtén ayuda con temas de examen",
+            "Ask for explanations of difficult concepts": "Pide explicaciones de conceptos difíciles",
+            "Perfect for homework and test prep": "Perfecto para tareas y preparación de exámenes",
+            "Professional Learning:": "Aprendizaje Profesional:",
+            "Explore any topic of interest": "Explora cualquier tema de interés",
+            "Get clear, structured explanations": "Obtén explicaciones claras y estructuradas",
+            "Use voice messages for hands-free learning!": "¡Usa mensajes de voz para aprender sin usar las manos!",
+            "Perfect for skill development and knowledge growth": "Perfecto para el desarrollo de habilidades y crecimiento del conocimiento",
+        },
+        "fr": {
+            "EduBot Commands": "Commandes EduBot",
+            "/lesson <topic>": "/leçon <sujet>",
+            "Get a lesson on any topic.": "Obtenez une leçon sur n'importe quel sujet.",
+            "Continue to next part of lesson": "Continuer à la partie suivante de la leçon",
+            "Take a quiz on your current lesson": "Faire un quiz sur votre leçon actuelle",
+            "Show this help message": "Afficher ce message d'aide",
+            "Voice Messages:": "Messages Vocaux:",
+            "For voice messages, use this format:": "Pour les messages vocaux, utilisez ce format:",
+            'Say "Teach me about <topic>"': 'Dites "Apprends-moi sur <sujet>"',
+            'Say "Next" to continue': 'Dites "Suivant" pour continuer',
+            'Say "Quiz" for a quiz': 'Dites "Quiz" pour un quiz',
+            'Say "Help" for help': 'Dites "Aide" pour l\'aide',
+            "Tips for little learners:": "Conseils pour les petits apprenants:",
+            "Ask about anything you're curious about!": "Demandez tout ce qui vous intrigue!",
+            "Try science topics like:": "Essayez des sujets scientifiques comme:",
+            "Use voice messages!": "Utilisez les messages vocaux!",
+            "I'll make it super fun and easy!": "Je vais le rendre super amusant et facile!",
+            "Study Tips:": "Conseils d'Étude:",
+            "Ask about homework topics": "Demandez des sujets de devoirs",
+            "Practice questions help you learn better!": "Les questions pratiques vous aident à mieux apprendre!",
+            "Study Smart:": "Étudiez Intelligemment:",
+            "Get help with exam topics": "Obtenez de l'aide sur les sujets d'examen",
+            "Ask for explanations of difficult concepts": "Demandez des explications de concepts difficiles",
+            "Perfect for homework and test prep": "Parfait pour les devoirs et la préparation aux tests",
+            "Professional Learning:": "Apprentissage Professionnel:",
+            "Explore any topic of interest": "Explorez n'importe quel sujet d'intérêt",
+            "Get clear, structured explanations": "Obtenez des explications claires et structurées",
+            "Use voice messages for hands-free learning!": "Utilisez les messages vocaux pour apprendre sans les mains!",
+            "Perfect for skill development and knowledge growth": "Parfait pour le développement des compétences et la croissance des connaissances",
+        },
+        "ms": {
+            "EduBot Commands": "Arahan EduBot",
+            "/lesson <topic>": "/pelajaran <topik>",
+            "Get a lesson on any topic.": "Dapatkan pelajaran tentang mana-mana topik.",
+            "Continue to next part of lesson": "Teruskan ke bahagian seterusnya pelajaran",
+            "Take a quiz on your current lesson": "Ambil kuiz tentang pelajaran semasa anda",
+            "Show this help message": "Tunjukkan mesej bantuan ini",
+            "Voice Messages:": "Mesej Suara:",
+            "For voice messages, use this format:": "Untuk mesej suara, gunakan format ini:",
+            'Say "Teach me about <topic>"': 'Katakan "Ajar saya tentang <topik>"',
+            'Say "Next" to continue': 'Katakan "Seterusnya" untuk meneruskan',
+            'Say "Quiz" for a quiz': 'Katakan "Kuiz" untuk kuiz',
+            'Say "Help" for help': 'Katakan "Bantuan" untuk bantuan',
+            "Tips for little learners:": "Petua untuk pelajar kecil:",
+            "Ask about anything you're curious about!": "Tanya tentang apa sahaja yang anda ingin tahu!",
+            "Try science topics like:": "Cuba topik sains seperti:",
+            "Use voice messages!": "Gunakan mesej suara!",
+            "I'll make it super fun and easy!": "Saya akan menjadikannya sangat menyeronokkan dan mudah!",
+            "Study Tips:": "Petua Belajar:",
+            "Ask about homework topics": "Tanya tentang topik kerja rumah",
+            "Practice questions help you learn better!": "Soalan latihan membantu anda belajar dengan lebih baik!",
+            "Study Smart:": "Belajar dengan Bijak:",
+            "Get help with exam topics": "Dapatkan bantuan dengan topik peperiksaan",
+            "Ask for explanations of difficult concepts": "Minta penjelasan tentang konsep yang sukar",
+            "Perfect for homework and test prep": "Sempurna untuk kerja rumah dan persediaan ujian",
+            "Professional Learning:": "Pembelajaran Profesional:",
+            "Explore any topic of interest": "Terokai mana-mana topik yang menarik minat",
+            "Get clear, structured explanations": "Dapatkan penjelasan yang jelas dan terstruktur",
+            "Use voice messages for hands-free learning!": "Gunakan mesej suara untuk pembelajaran tanpa tangan!",
+            "Perfect for skill development and knowledge growth": "Sempurna untuk pembangunan kemahiran dan pertumbuhan pengetahuan",
+        },
+        "zh": {
+            "EduBot Commands": "EduBot 命令",
+            "/lesson <topic>": "/课程 <主题>",
+            "Get a lesson on any topic.": "获取任何主题的课程。",
+            "Continue to next part of lesson": "继续课程的下一个部分",
+            "Take a quiz on your current lesson": "对你当前的课程进行测验",
+            "Show this help message": "显示此帮助消息",
+            "Voice Messages:": "语音消息：",
+            "For voice messages, use this format:": "对于语音消息，请使用此格式：",
+            'Say "Teach me about <topic>"': '说"教我关于<主题>"',
+            'Say "Next" to continue': '说"下一个"继续',
+            'Say "Quiz" for a quiz': '说"测验"进行测验',
+            'Say "Help" for help': '说"帮助"获取帮助',
+            "Tips for little learners:": "给小学习者的提示：",
+            "Ask about anything you're curious about!": "询问任何你好奇的事情！",
+            "Try science topics like:": "尝试科学主题，如：",
+            "Use voice messages!": "使用语音消息！",
+            "I'll make it super fun and easy!": "我会让它超级有趣和简单！",
+            "Study Tips:": "学习提示：",
+            "Ask about homework topics": "询问作业主题",
+            "Practice questions help you learn better!": "练习题帮助你更好地学习！",
+            "Study Smart:": "聪明学习：",
+            "Get help with exam topics": "获取考试主题的帮助",
+            "Ask for explanations of difficult concepts": "请求解释困难的概念",
+            "Perfect for homework and test prep": "非常适合作业和考试准备",
+            "Professional Learning:": "专业学习：",
+            "Explore any topic of interest": "探索任何感兴趣的主题",
+            "Get clear, structured explanations": "获得清晰、结构化的解释",
+            "Use voice messages for hands-free learning!": "使用语音消息进行免提学习！",
+            "Perfect for skill development and knowledge growth": "非常适合技能发展和知识增长",
+        },
+        "hi": {
+            "EduBot Commands": "EduBot कमांड",
+            "/lesson <topic>": "/पाठ <विषय>",
+            "Get a lesson on any topic.": "किसी भी विषय पर पाठ प्राप्त करें।",
+            "Continue to next part of lesson": "पाठ के अगले भाग पर जारी रखें",
+            "Take a quiz on your current lesson": "अपने वर्तमान पाठ पर क्विज़ लें",
+            "Show this help message": "यह सहायता संदेश दिखाएं",
+            "Voice Messages:": "आवाज़ संदेश:",
+            "For voice messages, use this format:": "आवाज़ संदेश के लिए, इस प्रारूप का उपयोग करें:",
+            'Say "Teach me about <topic>"': '"<विषय> के बारे में सिखाएं" कहें',
+            'Say "Next" to continue': 'जारी रखने के लिए "अगला" कहें',
+            'Say "Quiz" for a quiz': 'क्विज़ के लिए "क्विज़" कहें',
+            'Say "Help" for help': 'सहायता के लिए "सहायता" कहें',
+            "Tips for little learners:": "छोटे शिक्षार्थियों के लिए सुझाव:",
+            "Ask about anything you're curious about!": "किसी भी चीज़ के बारे में पूछें जिसके बारे में आप उत्सुक हैं!",
+            "Try science topics like:": "विज्ञान विषयों को आज़माएं जैसे:",
+            "Use voice messages!": "आवाज़ संदेश का उपयोग करें!",
+            "I'll make it super fun and easy!": "मैं इसे बहुत मजेदार और आसान बनाऊंगा!",
+            "Study Tips:": "अध्ययन सुझाव:",
+            "Ask about homework topics": "होमवर्क विषयों के बारे में पूछें",
+            "Practice questions help you learn better!": "अभ्यास प्रश्न आपको बेहतर सीखने में मदद करते हैं!",
+            "Study Smart:": "स्मार्ट अध्ययन:",
+            "Get help with exam topics": "परीक्षा विषयों पर सहायता प्राप्त करें",
+            "Ask for explanations of difficult concepts": "कठिन अवधारणाओं की व्याख्या मांगें",
+            "Perfect for homework and test prep": "होमवर्क और परीक्षा की तैयारी के लिए परफेक्ट",
+            "Professional Learning:": "पेशेवर सीखना:",
+            "Explore any topic of interest": "किसी भी रुचि के विषय का अन्वेषण करें",
+            "Get clear, structured explanations": "स्पष्ट, संरचित स्पष्टीकरण प्राप्त करें",
+            "Use voice messages for hands-free learning!": "हैंड्स-फ्री सीखने के लिए आवाज़ संदेश का उपयोग करें!",
+            "Perfect for skill development and knowledge growth": "कौशल विकास और ज्ञान वृद्धि के लिए परफेक्ट",
+        },
+    }
+    
+    if language not in translations:
+        return text
+    
+    translated = text
+    for en_text, translated_text in translations[language].items():
+        translated = translated.replace(en_text, translated_text)
+    
+    return translated
+
+
+def get_loading_message(command_type: str, topic: str = None, language: str = "en") -> str:
+    """Get loading message in the specified language."""
+    translations = {
+        "en": {
+            "lesson": f"⏳ Loading lesson: {topic.title()}" if topic else "⏳ LOADING LESSON...",
+            "next": "⏳ Loading next part...",
+            "quiz": "⏳ Loading quiz...",
+            "default": "⏳ LOADING...",
+        },
+        "es": {
+            "lesson": f"⏳ Cargando lección: {topic.title()}" if topic else "⏳ CARGANDO LECCIÓN...",
+            "next": "⏳ Cargando siguiente parte...",
+            "quiz": "⏳ Cargando cuestionario...",
+            "default": "⏳ CARGANDO...",
+        },
+        "fr": {
+            "lesson": f"⏳ Chargement de la leçon: {topic.title()}" if topic else "⏳ CHARGEMENT DE LA LEÇON...",
+            "next": "⏳ Chargement de la partie suivante...",
+            "quiz": "⏳ Chargement du quiz...",
+            "default": "⏳ CHARGEMENT...",
+        },
+        "ms": {
+            "lesson": f"⏳ Memuatkan pelajaran: {topic.title()}" if topic else "⏳ MEMUATKAN PELAJARAN...",
+            "next": "⏳ Memuatkan bahagian seterusnya...",
+            "quiz": "⏳ Memuatkan kuiz...",
+            "default": "⏳ MEMUATKAN...",
+        },
+        "zh": {
+            "lesson": f"⏳ 加载课程: {topic.title()}" if topic else "⏳ 加载课程中...",
+            "next": "⏳ 加载下一部分...",
+            "quiz": "⏳ 加载测验...",
+            "default": "⏳ 加载中...",
+        },
+        "hi": {
+            "lesson": f"⏳ पाठ लोड हो रहा है: {topic.title()}" if topic else "⏳ पाठ लोड हो रहा है...",
+            "next": "⏳ अगला भाग लोड हो रहा है...",
+            "quiz": "⏳ क्विज़ लोड हो रहा है...",
+            "default": "⏳ लोड हो रहा है...",
+        },
+    }
+    
+    lang_dict = translations.get(language, translations["en"])
+    return lang_dict.get(command_type, lang_dict["default"])
 
 
 def parse_lesson_command(message: str) -> Optional[str]:

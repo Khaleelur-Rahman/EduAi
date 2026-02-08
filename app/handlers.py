@@ -216,7 +216,7 @@ What would you like to learn about first? 🚀
             return self._handle_general_message(db, user, message, for_audio=for_audio)
     
     def _handle_help_command(self, user: User) -> str:
-        return get_help_message(user.age)
+        return get_help_message(user.age, user.language)
     
     def _handle_lesson_command(self, db: Session, user: User, message: str, for_audio: bool = False) -> str:
         topic = parse_lesson_command(message)
@@ -244,7 +244,7 @@ What would you like to learn about first? 🚀
                 system_prompt, user_prompt, chunk_id = get_rag_lesson(
                     current_lesson.topic, user.age, user.name, 
                     current_lesson.chunk_id, previous_content=current_lesson.lesson_content,
-                    for_audio=for_audio
+                    for_audio=for_audio, language=user.language
                 )
                 
                 if chunk_id is None:
@@ -277,6 +277,13 @@ What would you like to learn about first? 🚀
                 if len(lesson_content) > 1400:
                     logger.warning(f"Next lesson response too long ({len(lesson_content)} chars), retrying with stricter limit")
                     # Retry with a much stricter character limit
+                    # Language instruction
+                    lang_instruction = ""
+                    if user.language != "en":
+                        from .language import get_language_name
+                        lang_name = get_language_name(user.language, native=True)
+                        lang_instruction = f"\n- Language: Generate the entire lesson in {lang_name} ({user.language.upper()}). All text, explanations, examples, and responses must be in {lang_name}."
+                    
                     retry_system_prompt = f"""You are an expert science teacher for children aged {user.age} years old.
 You are continuing a lesson on {current_lesson.topic}. The student has already learned the previous part.
 
@@ -284,7 +291,7 @@ Instructions:
 - Topic: {current_lesson.topic} (continuation)
 - Age group: {user.age} years old
 - Length: Keep it VERY SHORT (under 1200 characters total - this is critical for WhatsApp delivery)
-- Style: Use simple language, clear examples, and everyday situations
+- Style: Use simple language, clear examples, and everyday situations{lang_instruction}
 - Use the provided educational content as your source of information
 - Make sure all facts are accurate and age-appropriate
 
@@ -333,10 +340,19 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
                 if lesson_content and text_without_emojis and not text_without_emojis.endswith(('.', '!', '?', ':', ';')):
                     logger.warning(f"Next lesson content appears truncated, attempting to complete: {lesson_content[-100:]}")
                     # Try to complete the truncated content
+                    # Language instruction for completion
+                    lang_instruction = ""
+                    if user.language != "en":
+                        from .language import get_language_name
+                        lang_name = get_language_name(user.language, native=True)
+                        lang_instruction = f" Complete the text in {lang_name} ({user.language.upper()})."
+                    
+                    completion_system_prompt = f"Complete the following educational text naturally. Only provide the completion to finish the thought, not the full text. Make sure it ends with proper punctuation.{lang_instruction} Do not include any thinking tags or reasoning - only provide the completion text."
+                    
                     completion_response = llm_service.client.chat.completions.create(
                         model=llm_service.model_name,
                         messages=[
-                            {"role": "system", "content": "Complete the following educational text naturally. Only provide the completion to finish the thought, not the full text. Make sure it ends with proper punctuation."},
+                            {"role": "system", "content": completion_system_prompt},
                             {"role": "user", "content": f"Complete this educational text (finish the thought naturally): {lesson_content[-300:]}"}
                         ],
                         max_completion_tokens=300,
@@ -347,6 +363,8 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
                     
                     if completion_response.choices[0].message.content:
                         completion = completion_response.choices[0].message.content.strip()
+                        # Strip think tags from completion
+                        completion = strip_think_tags(completion)
                         # Remove any duplicate text at the start
                         if lesson_content.endswith(completion[:20]):
                             lesson_content = lesson_content.rstrip()
@@ -455,7 +473,7 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
         try:
             from .rag import rag_service
             system_prompt, user_prompt = rag_service.create_rag_lesson_prompt(
-                topic, retrieved_chunks, user.age, user.name, for_audio=for_audio
+                topic, retrieved_chunks, user.age, user.name, for_audio=for_audio, language=user.language
             )
             
             from .llm import llm_service
@@ -484,6 +502,13 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
             if len(lesson_content) > 4600:
                 logger.warning(f"RAG response too long ({len(lesson_content)} chars), retrying with stricter limit")
                 # Retry with a much stricter character limit
+                # Language instruction
+                lang_instruction = ""
+                if user.language != "en":
+                    from .language import get_language_name
+                    lang_name = get_language_name(user.language, native=True)
+                    lang_instruction = f"\n- Language: Generate the entire lesson in {lang_name} ({user.language.upper()}). All text, explanations, examples, and responses must be in {lang_name}."
+                
                 retry_system_prompt = f"""You are an expert science teacher for children aged {user.age} years old.
 Your goal is to create an engaging, accurate science lesson using the provided educational content.
 
@@ -491,7 +516,7 @@ Instructions:
 - Topic: {topic}
 - Age group: {user.age} years old
 - Length: Keep it VERY SHORT (under 1200 characters total - this is critical for WhatsApp delivery)
-- Style: Use simple language, clear examples, and everyday situations
+- Style: Use simple language, clear examples, and everyday situations{lang_instruction}
 - Use the provided educational content as your source of information
 - Make sure all facts are accurate and age-appropriate
 - Structure: Brief introduction, key explanation and one simple example
@@ -532,10 +557,19 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
             if lesson_content and not lesson_content.rstrip().endswith(('.', '!', '?', ':', ';')):
                 logger.warning(f"RAG content appears truncated, attempting to complete: {lesson_content[-100:]}")
                 # Try to complete the truncated content
+                # Language instruction for completion
+                lang_instruction = ""
+                if user.language != "en":
+                    from .language import get_language_name
+                    lang_name = get_language_name(user.language, native=True)
+                    lang_instruction = f" Complete the text in {lang_name} ({user.language.upper()})."
+                
+                completion_system_prompt = f"Complete the following educational text naturally. Only provide the completion to finish the thought, not the full text. Make sure it ends with proper punctuation.{lang_instruction} Do not include any thinking tags or reasoning - only provide the completion text."
+                
                 completion_response = llm_service.client.chat.completions.create(
                     model=llm_service.model_name,
                     messages=[
-                        {"role": "system", "content": "Complete the following educational text naturally. Only provide the completion to finish the thought, not the full text. Make sure it ends with proper punctuation."},
+                        {"role": "system", "content": completion_system_prompt},
                         {"role": "user", "content": f"Complete this educational text (finish the thought naturally): {lesson_content[-300:]}"}
                     ],
                     max_completion_tokens=300,
@@ -546,6 +580,8 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
                 
                 if completion_response.choices[0].message.content:
                     completion = completion_response.choices[0].message.content.strip()
+                    # Strip think tags from completion
+                    completion = strip_think_tags(completion)
                     # Remove any duplicate text at the start
                     if lesson_content.endswith(completion[:20]):
                         lesson_content = lesson_content.rstrip()
@@ -587,7 +623,7 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
     def _generate_base_llm_lesson(self, db: Session, user: User, topic: str, for_audio: bool = False) -> str:
         """Generate a lesson using base LLM without RAG."""
         try:
-            lesson_content = generate_lesson(topic, user.age, user.name, for_audio=for_audio)
+            lesson_content = generate_lesson(topic, user.age, user.name, for_audio=for_audio, language=user.language)
             progress = create_progress(db, user.id, topic, lesson_content)
             formatted_lesson = format_for_whatsapp(lesson_content, user.age)
             
@@ -722,9 +758,9 @@ def process_whatsapp_message_request_audio(db: Session, phone_number: str, messa
         logger.info("Skipping TTS for error response; sending as text")
         return result
     try:
-        voice = tts_service.get_voice_for_age(user.age if user.age else 10)
+        voice = tts_service.get_voice_for_age(user.age if user.age else 10, user.language)
         age = user.age if user.age else 10
-        segments = synthesize_speech_chunked(response_text, voice, age)
+        segments = synthesize_speech_chunked(response_text, voice, age, language=user.language)
         if segments:
             result["audio_segments"] = segments
             if len(segments) == 1:
@@ -847,7 +883,11 @@ async def process_whatsapp_audio(
         
         # Transcribe audio to text
         logger.info("Transcribing audio...")
-        transcribed_text = transcribe_audio(audio_data, content_type)
+        user = get_user_by_phone(db, phone_number)
+        if not user:
+            user = create_user(db, phone_number)
+        user_language = user.language if user else "en"
+        transcribed_text = transcribe_audio(audio_data, content_type, language=user_language)
         
         if not transcribed_text:
             logger.error("Failed to transcribe audio")
@@ -856,10 +896,6 @@ async def process_whatsapp_audio(
             }
         
         logger.info(f"Transcription successful: {transcribed_text}")
-        
-        user = get_user_by_phone(db, phone_number)
-        if not user:
-            user = create_user(db, phone_number)
         
         # Check if transcription matches expected voice format
         transcribed_lower = transcribed_text.lower().strip()
@@ -880,15 +916,16 @@ async def process_whatsapp_audio(
                     if not to_user.startswith("whatsapp:+"):
                         to_user = to_user.replace("whatsapp:", "whatsapp:+")
                     
+                    from .utils import get_loading_message
                     loading_text = None
                     if transcribed_lower.startswith("teach me about ") or transcribed_lower.startswith("lesson "):
                         topic = transcribed_text[len("teach me about " if transcribed_lower.startswith("teach me about ") else "lesson "):].strip()
                         if topic:
-                            loading_text = f"⏳ Loading lesson: {topic.title()}"
+                            loading_text = get_loading_message("lesson", topic, user_language)
                     elif transcribed_lower.strip() == "next" or transcribed_lower.startswith("next "):
-                        loading_text = "⏳ Loading next part..."
+                        loading_text = get_loading_message("next", None, user_language)
                     elif transcribed_lower.startswith("quiz"):
-                        loading_text = "⏳ Loading quiz..."
+                        loading_text = get_loading_message("quiz", None, user_language)
                     
                     if loading_text:
                         twilio_client.messages.create(
@@ -925,10 +962,10 @@ async def process_whatsapp_audio(
         # Fallback: result['text'] is always set above — when TTS fails, caller should send text instead.
         if return_audio and user.is_onboarded:
             try:
-                voice = tts_service.get_voice_for_age(user.age if user.age else 10)
+                voice = tts_service.get_voice_for_age(user.age if user.age else 10, user.language)
                 age = user.age if user.age else 10
-                logger.info(f"Generating chunked audio response (voice: {voice}, age: {age})...")
-                segments = synthesize_speech_chunked(response_text, voice, age)
+                logger.info(f"Generating chunked audio response (voice: {voice}, age: {age}, language: {user.language})...")
+                segments = synthesize_speech_chunked(response_text, voice, age, language=user.language)
                 if segments:
                     result['audio_segments'] = segments
                     if len(segments) == 1:

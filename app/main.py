@@ -43,34 +43,28 @@ def _whatsapp_from(number: str) -> str:
         n = "+" + n
     return f"whatsapp:{n}"
 
-def _send_loading_message(phone_number: str, command_type: str, topic: str = None) -> None:
+def _send_loading_message(phone_number: str, command_type: str, topic: str = None, language: str = "en") -> None:
     """Send an immediate loading message via REST API for better UX."""
     if not TWILIO_CLIENT or not TWILIO_PHONE_NUMBER:
         return
     
     try:
+        from app.utils import get_loading_message
         from_twilio = _whatsapp_from(TWILIO_PHONE_NUMBER)
         to_user = _whatsapp_from(phone_number) or f"whatsapp:{phone_number}"
         
-        if command_type == "lesson":
-            loading_text = f"⏳ Loading lesson: {topic.title()}" if topic else "⏳ LOADING LESSON..."
-        elif command_type == "next":
-            loading_text = "⏳ Loading next part..."
-        elif command_type == "quiz":
-            loading_text = "⏳ Loading quiz..."
-        else:
-            loading_text = "⏳ LOADING..."
+        loading_text = get_loading_message(command_type, topic, language)
         
         TWILIO_CLIENT.messages.create(
             from_=from_twilio,
             to=to_user,
             body=loading_text,
         )
-        logger.info(f"Sent loading message: {loading_text}")
+        logger.info(f"Sent loading message ({language}): {loading_text}")
     except Exception as e:
         logger.warning(f"Failed to send loading message: {e}")
 
-def _detect_command_and_send_loading(phone_number: str, message: str) -> None:
+def _detect_command_and_send_loading(phone_number: str, message: str, language: str = "en") -> None:
     """Detect lesson/quiz/next/audio commands and send appropriate loading message."""
     if not message or not message.strip():
         return
@@ -78,46 +72,51 @@ def _detect_command_and_send_loading(phone_number: str, message: str) -> None:
     msg_lower = message.strip().lower()
     msg_stripped = message.strip()
     
+    # Detect /language command
+    if msg_lower.startswith("/language") or msg_lower.startswith("/lang"):
+        # Don't send loading for language command
+        return
+    
     # Detect /next command FIRST (before /lesson to avoid confusion)
     if msg_lower == "/next" or msg_lower.startswith("/next "):
-        _send_loading_message(phone_number, "next")
+        _send_loading_message(phone_number, "next", None, language)
         return
     
     # Detect /audio next
     if msg_lower == "/audio next" or msg_lower.startswith("/audio next "):
-        _send_loading_message(phone_number, "next")
+        _send_loading_message(phone_number, "next", None, language)
         return
     
     # Detect /audio commands
     if msg_lower.startswith("/audio "):
         topic = msg_stripped[7:].strip()
         if topic and topic.lower() != "next":
-            _send_loading_message(phone_number, "lesson", topic)
+            _send_loading_message(phone_number, "lesson", topic, language)
             return
     
     # Detect /lesson command
     if msg_lower.startswith("/lesson "):
         topic = msg_stripped[7:].strip()
         if topic:
-            _send_loading_message(phone_number, "lesson", topic)
+            _send_loading_message(phone_number, "lesson", topic, language)
             return
     
     # Detect /quiz command
     if msg_lower.startswith("/quiz"):
-        _send_loading_message(phone_number, "quiz")
+        _send_loading_message(phone_number, "quiz", None, language)
         return
     
     # Detect voice-friendly formats
     if msg_lower.startswith("teach me about "):
         topic = msg_stripped[len("teach me about "):].strip()
         if topic:
-            _send_loading_message(phone_number, "lesson", topic)
+            _send_loading_message(phone_number, "lesson", topic, language)
             return
     
     if msg_lower.startswith("lesson "):
         topic = msg_stripped[len("lesson "):].strip()
         if topic and topic.lower() != "next":
-            _send_loading_message(phone_number, "lesson", topic)
+            _send_loading_message(phone_number, "lesson", topic, language)
             return
     
     # Detect plain "next" (voice format)
@@ -564,8 +563,39 @@ async def whatsapp_webhook(
         body_text = Body or ""
         logger.info(f"Received WhatsApp message from {From}: {body_text[:100]}...")
         
-        # Check if this is a command that needs loading message + background processing
+        # Get user to check language preference
+        from .db import get_user_by_phone, create_user
+        user = get_user_by_phone(db, phone_number)
+        if not user:
+            user = create_user(db, phone_number)
+        user_language = user.language if user else "en"
+        
+        # Handle /language command immediately
         msg_lower = body_text.strip().lower()
+        if msg_lower.startswith("/language") or msg_lower.startswith("/lang"):
+            from .language import validate_language_code, SUPPORTED_LANGUAGES, get_language_name
+            from .db import update_user
+            
+            parts = body_text.strip().split(None, 1)
+            if len(parts) > 1:
+                lang_code = validate_language_code(parts[1])
+                if lang_code:
+                    update_user(db, user, language=lang_code)
+                    lang_name = get_language_name(lang_code, native=True)
+                    response_msg = f"✅ Language changed to {lang_name} ({lang_code.upper()})"
+                else:
+                    supported = ", ".join([f"{code} ({info['native']})" for code, info in SUPPORTED_LANGUAGES.items()])
+                    response_msg = f"❌ Invalid language. Supported: {supported}\n\nExample: /language es"
+            else:
+                current_lang = get_language_name(user_language, native=True)
+                supported = "\n".join([f"• {code} - {info['native']}" for code, info in SUPPORTED_LANGUAGES.items()])
+                response_msg = f"🌐 Current language: {current_lang} ({user_language.upper()})\n\nSupported languages:\n{supported}\n\nChange language: /language <code>\nExample: /language es"
+            
+            twiml_response = MessagingResponse()
+            twiml_response.message(response_msg)
+            return Response(content=str(twiml_response), media_type="application/xml")
+        
+        # Check if this is a command that needs loading message + background processing
         is_command = (
             msg_lower.startswith("/audio") or
             msg_lower.startswith("/lesson") or
@@ -578,8 +608,8 @@ async def whatsapp_webhook(
         )
         
         if is_command:
-            # Send loading message immediately
-            _detect_command_and_send_loading(phone_number, body_text)
+            # Send loading message immediately with user's language
+            _detect_command_and_send_loading(phone_number, body_text, user_language)
             # Extract base URL before background task (request may not be available in background)
             base_url = _get_base_url(request)
             # Process in background and send via REST API

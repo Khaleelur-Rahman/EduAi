@@ -12,7 +12,7 @@ from twilio.twiml.messaging_response import MessagingResponse
 from twilio.rest import Client as TwilioClient
 
 from .db import get_db, create_tables
-from .handlers import process_whatsapp_message, process_whatsapp_audio, process_whatsapp_message_request_audio, process_whatsapp_message_request_image
+from .handlers import process_whatsapp_message, process_whatsapp_audio, process_whatsapp_message_request_audio
 from .llm import initialize_llm
 from .rag import initialize_rag
 from .audio import initialize_audio_services
@@ -81,12 +81,6 @@ def _detect_command_and_send_loading(phone_number: str, message: str, language: 
         # Don't send loading for language command
         return
 
-    # Detect /image command
-    if msg_lower.startswith("/image "):
-        topic = msg_stripped[7:].strip()
-        if topic:
-            _send_loading_message(phone_number, "lesson", topic, language)
-        return
     
     # Detect /next command FIRST (before /lesson to avoid confusion)
     if msg_lower == "/next" or msg_lower.startswith("/next "):
@@ -426,7 +420,7 @@ def _send_response_via_rest(request_or_base_url, phone_number: str, response) ->
                     except:
                         pass
         elif response.get("image_bytes"):
-            # Image (e.g. from /image command)
+            # Image (e.g. from lesson or /next command)
             try:
                 image_id = _store_temp_image(
                     response["image_bytes"],
@@ -466,7 +460,7 @@ def _send_response_via_rest(request_or_base_url, phone_number: str, response) ->
             logger.error(f"Failed to send text via REST: {e}")
 
 def _apply_audio_or_fallback_response(request: Request, phone_number: str, response: dict, twiml_response) -> None:
-    """Apply dict response (from process_whatsapp_audio or process_whatsapp_message_request_audio) to twiml_response."""
+    """Apply dict response (from process_whatsapp_audio, process_whatsapp_message_request_audio, or process_whatsapp_message) to twiml_response."""
     text = response.get("text", "")
     tts_failed = response.get("tts_failed", False)
     if tts_failed and text:
@@ -475,6 +469,25 @@ def _apply_audio_or_fallback_response(request: Request, phone_number: str, respo
         else:
             twiml_response.message("Audio couldn't be generated. Here's your lesson:\n\n" + text)
         logger.info(f"TTS fallback: sent text backup ({len(text)} chars)")
+    elif response.get("image_bytes"):
+        # Image (e.g. from /image or /next command)
+        try:
+            image_id = _store_temp_image(
+                response["image_bytes"],
+                response.get("image_content_type", "image/jpeg"),
+            )
+            base_url = _get_base_url(request)
+            image_url = f"{base_url}/image/{image_id}"
+            logger.info(f"Media base URL: {base_url}")
+            msg = twiml_response.message()
+            msg.media(image_url)
+            if text:
+                msg.body(text)
+            logger.info(f"Prepared image response: {image_url}")
+        except Exception as e:
+            logger.error(f"Error preparing image response: {e}")
+            if text:
+                twiml_response.message(text)
     elif response.get("audio_segments"):
         segments = response["audio_segments"]
         try:
@@ -599,10 +612,9 @@ def _process_message_in_background(
         msg_lower = body_text.strip().lower()
         if msg_lower.startswith("/audio"):
             response = process_whatsapp_message_request_audio(db, phone_number, body_text)
-        elif msg_lower.startswith("/image"):
-            response = process_whatsapp_message_request_image(db, phone_number, body_text)
         else:
-            response = process_whatsapp_message(db, phone_number, body_text)
+            # process_whatsapp_message now returns dict with image_bytes for text lessons
+            response = process_whatsapp_message(db, phone_number, body_text, for_audio=False)
         
         # Send response via REST API (pass base_url as string)
         _send_response_via_rest(base_url, phone_number, response)
@@ -696,7 +708,6 @@ async def whatsapp_webhook(
         # Check if this is a command that needs loading message + background processing
         is_command = (
             msg_lower.startswith("/audio") or
-            msg_lower.startswith("/image") or
             msg_lower.startswith("/lesson") or
             msg_lower.startswith("/next") or
             msg_lower.startswith("/quiz") or
@@ -739,7 +750,8 @@ async def whatsapp_webhook(
         if body_text.strip().lower().startswith("/audio"):
             response = process_whatsapp_message_request_audio(db, phone_number, body_text)
         else:
-            response = process_whatsapp_message(db, phone_number, body_text)
+            # process_whatsapp_message now returns dict with image_bytes for text lessons
+            response = process_whatsapp_message(db, phone_number, body_text, for_audio=False)
 
         twiml_response = MessagingResponse()
         if isinstance(response, dict):

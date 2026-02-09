@@ -65,8 +65,11 @@ def apply_whatsapp_formatting(text: str) -> str:
     for term in key_terms:
         text = re.sub(f'({term})', r'*\1*', text, flags=re.IGNORECASE)
     
-    text = re.sub(r'(Example:.*?)(\n|$)', r'_\1_\2', text, flags=re.IGNORECASE)
-    text = re.sub(r'(Practice:.*?)(\n|$)', r'_\1_\2', text, flags=re.IGNORECASE)
+    # Match "Example:" or "Practice:" only when they appear as standalone labels
+    # Require them to be at start of line, after newline, or after punctuation
+    # This avoids matching when part of phrases like "Fun example:" or "great example:"
+    text = re.sub(r'(^|\n|[.!?]\s+)(Example:.*?)(\n|$)', r'\1_\2_\3', text, flags=re.IGNORECASE | re.MULTILINE)
+    text = re.sub(r'(^|\n|[.!?]\s+)(Practice:.*?)(\n|$)', r'\1_\2_\3', text, flags=re.IGNORECASE | re.MULTILINE)
     
     return text
 
@@ -161,7 +164,7 @@ def get_help_message(age_group: int, language: str = "en") -> str:
 ➡️ `/next` - Continue to next part of lesson
 🧩 `/quiz` - Take a quiz on your current lesson
 🎤 `/audio <topic>` - Get an audio lesson (e.g. `/audio cells`)
-📷 `/image <topic>` - Get a lesson with an illustration
+🌐 `/language <code>` - Change language (e.g. `/language es` for Spanish)
 📊 `/progress` - See your completed lessons and quiz scores
 ❓ `/help` - Show this help message
 
@@ -229,7 +232,8 @@ def _translate_help_message(text: str, language: str) -> str:
             "Get a lesson with an illustration": "Obtén una lección con ilustración",
             "See your completed lessons and quiz scores": "Ver tus lecciones completadas y puntuaciones",
             "/audio <topic>": "/audio <tema>",
-            "/image <topic>": "/imagen <tema>",
+            "/language <code>": "/idioma <código>",
+            "Change language (e.g. `/language es` for Spanish)": "Cambiar idioma (ej. `/idioma es` para español)",
             "/progress": "/progreso",
             'Say "Progress" for your progress': 'Di "Progreso" para ver tu progreso',
             "Show this help message": "Mostrar este mensaje de ayuda",
@@ -267,7 +271,8 @@ def _translate_help_message(text: str, language: str) -> str:
             "Get a lesson with an illustration": "Obtenez une leçon avec illustration",
             "See your completed lessons and quiz scores": "Voir vos leçons terminées et scores de quiz",
             "/audio <topic>": "/audio <sujet>",
-            "/image <topic>": "/image <sujet>",
+            "/language <code>": "/langue <code>",
+            "Change language (e.g. `/language es` for Spanish)": "Changer la langue (ex. `/langue es` pour espagnol)",
             "/progress": "/progression",
             'Say "Progress" for your progress': 'Dites "Progression" pour voir votre progression',
             "Show this help message": "Afficher ce message d'aide",
@@ -305,7 +310,8 @@ def _translate_help_message(text: str, language: str) -> str:
             "Get a lesson with an illustration": "Dapatkan pelajaran dengan ilustrasi",
             "See your completed lessons and quiz scores": "Lihat pelajaran dan skor kuiz anda",
             "/audio <topic>": "/audio <tajuk>",
-            "/image <topic>": "/gambar <tajuk>",
+            "/language <code>": "/bahasa <kod>",
+            "Change language (e.g. `/language es` for Spanish)": "Tukar bahasa (cth. `/bahasa es` untuk Sepanyol)",
             "/progress": "/kemajuan",
             'Say "Progress" for your progress': 'Katakan "Kemajuan" untuk kemajuan anda',
             "Show this help message": "Tunjukkan mesej bantuan ini",
@@ -343,7 +349,8 @@ def _translate_help_message(text: str, language: str) -> str:
             "Get a lesson with an illustration": "获取带插图的课程",
             "See your completed lessons and quiz scores": "查看你完成的课程和测验成绩",
             "/audio <topic>": "/audio <主题>",
-            "/image <topic>": "/image <主题>",
+            "/language <code>": "/语言 <代码>",
+            "Change language (e.g. `/language es` for Spanish)": "更改语言（例如 `/语言 es` 表示西班牙语）",
             "/progress": "/进度",
             'Say "Progress" for your progress': '说"进度"查看进度',
             "Show this help message": "显示此帮助消息",
@@ -381,7 +388,8 @@ def _translate_help_message(text: str, language: str) -> str:
             "Get a lesson with an illustration": "इलस्ट्रेशन के साथ पाठ प्राप्त करें",
             "See your completed lessons and quiz scores": "अपने पूर्ण पाठ और क्विज़ स्कोर देखें",
             "/audio <topic>": "/audio <विषय>",
-            "/image <topic>": "/image <विषय>",
+            "/language <code>": "/भाषा <कोड>",
+            "Change language (e.g. `/language es` for Spanish)": "भाषा बदलें (उदा. `/भाषा es` स्पेनिश के लिए)",
             "/progress": "/प्रगति",
             'Say "Progress" for your progress': 'प्रगति के लिए "प्रगति" कहें',
             "Show this help message": "यह सहायता संदेश दिखाएं",
@@ -430,17 +438,25 @@ def format_progress_review(lessons: list, quizzes: list, language: str = "en") -
         return f"📊 *{t['your_progress']}*\n\n{t['no_progress']}"
     lines = [f"📊 *{t['your_progress']}*", ""]
 
-    # Lessons section
+    # Lessons section - deduplicate by (topic, lesson_step)
     lines.append(f"📚 *{t['lessons']}:*")
     if not lessons:
         lines.append(f"• {t['no_lessons_yet']}")
     else:
-        for p in lessons[:8]:
+        seen_lessons = set()
+        unique_lessons = []
+        for p in lessons:
+            key = (p.topic.lower(), p.lesson_step)
+            if key not in seen_lessons:
+                seen_lessons.add(key)
+                unique_lessons.append(p)
+        
+        for p in unique_lessons[:8]:
             title = clean_topic_title(p.topic)
             if getattr(p, "completed", False):
                 lines.append(f"• {title} ({t['completed']})")
             else:
-                lines.append(f"• {title} - Part {p.lesson_step}/{p.total_steps}")
+                lines.append(f"• {title} - Part {p.lesson_step}")
 
     lines.append("")
     lines.append(f"🧩 *{t['quizzes']}:*")
@@ -455,7 +471,12 @@ def format_progress_review(lessons: list, quizzes: list, language: str = "en") -
             except (json.JSONDecodeError, TypeError):
                 total = 3
             score = q.score if q.score is not None else 0
-            lines.append(f"• {title}: {score}/{total}")
+            # Include lesson step (part) in quiz display
+            lesson_step = getattr(q, "lesson_step", None)
+            if lesson_step:
+                lines.append(f"• {title} - Part {lesson_step}: {score}/{total}")
+            else:
+                lines.append(f"• {title}: {score}/{total}")
 
     lines.append("")
     lines.append(f"_{t['keep_learning']}_")

@@ -13,7 +13,6 @@ from .utils import (
     format_progress_review
 )
 from .audio import transcribe_audio, synthesize_speech, synthesize_speech_chunked, tts_service
-from .image import generate_lesson_image
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -787,42 +786,6 @@ def process_whatsapp_message_request_audio(db: Session, phone_number: str, messa
     except Exception as e:
         result["tts_failed"] = True
         logger.error(f"TTS failed for /audio request: {e}; text backup will be sent")
-    return result
-
-
-def process_whatsapp_message_request_image(db: Session, phone_number: str, message: str) -> dict:
-    """
-    Handle /image <topic> or /lesson <topic> image: generate lesson + image, return
-    dict with {text, image_bytes?, image_content_type?}.
-    """
-    msg = message.strip()
-    msg_lower = msg.lower()
-    topic = None
-
-    if msg_lower.startswith("/image "):
-        topic = msg[7:].strip()
-    elif msg_lower.startswith("/lesson ") and " image" in msg_lower:
-        parts = msg[7:].strip().split()
-        if "image" in [p.lower() for p in parts]:
-            topic = " ".join(p for p in parts if p.lower() != "image").strip()
-    if not topic:
-        return {"text": "Please specify a topic. Try /image cells or /image photosynthesis. 📷"}
-
-    response_text = process_whatsapp_message(db, phone_number, f"/lesson {topic}", for_audio=False)
-    result = {"text": response_text}
-
-    user = get_user_by_phone(db, phone_number)
-    if not user:
-        user = create_user(db, phone_number)
-    lang = user.language if user else "en"
-
-    img_result = generate_lesson_image(topic, lang)
-    if img_result:
-        result["image_bytes"] = img_result[0]
-        result["image_content_type"] = img_result[1]
-        logger.info(f"/image response: generated image for topic '{topic}'")
-    else:
-        logger.warning("Image generation failed; sending text only")
     return result
 
 

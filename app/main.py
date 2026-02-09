@@ -12,7 +12,7 @@ from twilio.twiml.messaging_response import MessagingResponse
 from twilio.rest import Client as TwilioClient
 
 from .db import get_db, create_tables
-from .handlers import process_whatsapp_message, process_whatsapp_audio, process_whatsapp_message_request_audio, process_whatsapp_message_request_image
+from .handlers import process_whatsapp_message, process_whatsapp_audio, process_whatsapp_message_request_audio
 from .llm import initialize_llm
 from .rag import initialize_rag
 from .audio import initialize_audio_services
@@ -21,9 +21,6 @@ from .audio import initialize_audio_services
 # Format: {audio_id: {'bytes': bytes, 'content_type': str, 'created_at': datetime}}
 _temp_audio_store: Dict[str, Dict[str, Any]] = {}
 
-# Temporary in-memory image storage for generated lesson images
-# Format: {image_id: {'bytes': bytes, 'content_type': str, 'created_at': datetime}}
-_temp_image_store: Dict[str, Dict[str, Any]] = {}
 
 
 logging.basicConfig(
@@ -81,13 +78,6 @@ def _detect_command_and_send_loading(phone_number: str, message: str, language: 
         # Don't send loading for language command
         return
 
-    # Detect /image command
-    if msg_lower.startswith("/image "):
-        topic = msg_stripped[7:].strip()
-        if topic:
-            _send_loading_message(phone_number, "lesson", topic, language)
-        return
-    
     # Detect /next command FIRST (before /lesson to avoid confusion)
     if msg_lower == "/next" or msg_lower.startswith("/next "):
         _send_loading_message(phone_number, "next", None, language)
@@ -193,7 +183,6 @@ async def lifespan(app: FastAPI):
     
     # Cleanup: Clear temporary media stores on shutdown
     _temp_audio_store.clear()
-    _temp_image_store.clear()
     logger.info("Shutting down EduBot application...")
 
 app = FastAPI(
@@ -245,32 +234,6 @@ async def serve_audio(audio_id: str, request: Request):
     )
 
 
-@app.get("/image/{image_id}")
-async def serve_image(image_id: str, request: Request):
-    """
-    Temporary endpoint to serve generated images for Twilio media messages.
-    Images are stored in memory and expire after 1 hour.
-    """
-    if image_id not in _temp_image_store:
-        raise HTTPException(status_code=404, detail="Image not found or expired")
-    
-    image_data = _temp_image_store[image_id]
-    
-    if datetime.utcnow() - image_data['created_at'] > timedelta(hours=1):
-        del _temp_image_store[image_id]
-        raise HTTPException(status_code=404, detail="Image expired")
-    
-    content_type = image_data.get('content_type', 'image/jpeg')
-    image_bytes = image_data['bytes']
-    return Response(
-        content=image_bytes,
-        media_type=content_type,
-        headers={
-            'Content-Disposition': f'inline; filename="lesson_{image_id}.jpg"',
-            'Content-Length': str(len(image_bytes)),
-            'Cache-Control': 'no-cache',
-        }
-    )
 
 def _get_base_url(request: Request) -> str:
     """Get the base URL of the server from the request.
@@ -313,25 +276,6 @@ def _store_temp_audio(audio_bytes: bytes, content_type: str) -> str:
     return audio_id
 
 
-def _store_temp_image(image_bytes: bytes, content_type: str) -> str:
-    """Store image bytes temporarily and return a unique ID."""
-    image_id = str(uuid.uuid4())
-    _temp_image_store[image_id] = {
-        'bytes': image_bytes,
-        'content_type': content_type,
-        'created_at': datetime.utcnow()
-    }
-
-    current_time = datetime.utcnow()
-    expired_ids = [
-        iid for iid, data in _temp_image_store.items()
-        if current_time - data['created_at'] > timedelta(hours=1)
-    ]
-    for expired_id in expired_ids:
-        del _temp_image_store[expired_id]
-
-    logger.info(f"Stored temporary image file: {image_id} ({len(image_bytes)} bytes)")
-    return image_id
 
 
 def _send_response_via_rest(request_or_base_url, phone_number: str, response) -> None:
@@ -420,30 +364,6 @@ def _send_response_via_rest(request_or_base_url, phone_number: str, response) ->
                 logger.info(f"Sent single audio via REST: {audio_url}")
             except Exception as e:
                 logger.error(f"Error sending audio via REST: {e}")
-                if text:
-                    try:
-                        TWILIO_CLIENT.messages.create(from_=from_twilio, to=to_user, body=text)
-                    except:
-                        pass
-        elif response.get("image_bytes"):
-            # Image (e.g. from /image command)
-            try:
-                image_id = _store_temp_image(
-                    response["image_bytes"],
-                    response.get("image_content_type", "image/jpeg"),
-                )
-                image_url = f"{base_url}/image/{image_id}"
-                msg_params = {
-                    "from_": from_twilio,
-                    "to": to_user,
-                    "media_url": [image_url],
-                }
-                if text:
-                    msg_params["body"] = text
-                TWILIO_CLIENT.messages.create(**msg_params)
-                logger.info(f"Sent image via REST: {image_url}")
-            except Exception as e:
-                logger.error(f"Error sending image via REST: {e}")
                 if text:
                     try:
                         TWILIO_CLIENT.messages.create(from_=from_twilio, to=to_user, body=text)
@@ -599,8 +519,6 @@ def _process_message_in_background(
         msg_lower = body_text.strip().lower()
         if msg_lower.startswith("/audio"):
             response = process_whatsapp_message_request_audio(db, phone_number, body_text)
-        elif msg_lower.startswith("/image"):
-            response = process_whatsapp_message_request_image(db, phone_number, body_text)
         else:
             response = process_whatsapp_message(db, phone_number, body_text)
         
@@ -696,7 +614,6 @@ async def whatsapp_webhook(
         # Check if this is a command that needs loading message + background processing
         is_command = (
             msg_lower.startswith("/audio") or
-            msg_lower.startswith("/image") or
             msg_lower.startswith("/lesson") or
             msg_lower.startswith("/next") or
             msg_lower.startswith("/quiz") or

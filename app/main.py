@@ -260,35 +260,6 @@ async def serve_image(image_id: str, request: Request):
         content=image_bytes,
         media_type=content_type,
         headers={
-            'Content-Disposition': f'inline; filename="lesson_{audio_id}.mp3"',
-            'Content-Length': str(len(audio_bytes)),
-            'Cache-Control': 'no-cache',
-        }
-    )
-
-@app.get("/image/{image_id}")
-async def serve_image(image_id: str, request: Request):
-    """
-    Temporary endpoint to serve image files for Twilio media messages.
-    Image files are stored in memory and expire after 1 hour.
-    """
-    if image_id not in _temp_image_store:
-        raise HTTPException(status_code=404, detail="Image file not found or expired")
-    
-    image_data = _temp_image_store[image_id]
-    
-    # Check if image has expired (1 hour TTL)
-    if datetime.utcnow() - image_data['created_at'] > timedelta(hours=1):
-        # Clean up expired image
-        del _temp_image_store[image_id]
-        raise HTTPException(status_code=404, detail="Image file expired")
-    
-    content_type = image_data.get('content_type', 'image/jpeg')
-    image_bytes = image_data['bytes']
-    return Response(
-        content=image_bytes,
-        media_type=content_type,
-        headers={
             'Content-Disposition': f'inline; filename="lesson_{image_id}.jpg"',
             'Content-Length': str(len(image_bytes)),
             'Cache-Control': 'no-cache',
@@ -766,13 +737,26 @@ async def whatsapp_webhook(
         if body_text.strip().lower().startswith("join ") and TWILIO_CLIENT and TWILIO_PHONE_NUMBER:
             logger.info("Detected sandbox join message. Sending proactive welcome.")
             try:
-                response_text = process_whatsapp_message(db, phone_number, body_text)
-
-                TWILIO_CLIENT.messages.create(
-                    body=response_text,
-                    from_=f"whatsapp:{TWILIO_PHONE_NUMBER}",
-                    to=f"whatsapp:{phone_number}"
-                )
+                response = process_whatsapp_message(db, phone_number, body_text, for_audio=False)
+                # Handle dict response (may contain image_bytes)
+                if isinstance(response, dict):
+                    text = response.get("text", "")
+                    if response.get("image_bytes"):
+                        # Send image with text via REST
+                        _send_response_via_rest(_get_base_url(request), phone_number, response)
+                    elif text:
+                        TWILIO_CLIENT.messages.create(
+                            body=text,
+                            from_=f"whatsapp:{TWILIO_PHONE_NUMBER}",
+                            to=f"whatsapp:{phone_number}"
+                        )
+                else:
+                    # String response (fallback)
+                    TWILIO_CLIENT.messages.create(
+                        body=str(response),
+                        from_=f"whatsapp:{TWILIO_PHONE_NUMBER}",
+                        to=f"whatsapp:{phone_number}"
+                    )
                 return Response(content=str(MessagingResponse()), media_type="application/xml")
             except Exception as send_err:
                 logger.error(f"Failed to send proactive welcome: {str(send_err)}")

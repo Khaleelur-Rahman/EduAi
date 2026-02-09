@@ -107,9 +107,8 @@ def _detect_command_and_send_loading(phone_number: str, message: str, language: 
         _send_loading_message(phone_number, "quiz", None, language)
         return
     
-    # Detect /progress and /review commands
+    # Detect /progress and /review commands (no loading message)
     if msg_lower.startswith("/progress") or msg_lower.startswith("/review"):
-        _send_loading_message(phone_number, "progress", None, language)
         return
     
     # Detect voice-friendly formats
@@ -135,7 +134,7 @@ def _detect_command_and_send_loading(phone_number: str, message: str, language: 
         return
     
     if msg_lower.startswith("progress") or msg_lower.startswith("review"):
-        _send_loading_message(phone_number, "progress")
+        # No loading message for progress
         return
 
 if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER]):

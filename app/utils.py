@@ -435,12 +435,23 @@ def format_progress_review(lessons: list, quizzes: list, language: str = "en") -
     if not lessons:
         lines.append(f"• {t['no_lessons_yet']}")
     else:
-        for p in lessons[:8]:
+        # Deduplicate lessons by (topic.lower(), lesson_step)
+        seen_lessons = set()
+        unique_lessons = []
+        for p in lessons:
+            key = (p.topic.lower(), p.lesson_step)
+            if key not in seen_lessons:
+                seen_lessons.add(key)
+                unique_lessons.append(p)
+        
+        # Show only top 8 unique lessons
+        for p in unique_lessons[:8]:
             title = clean_topic_title(p.topic)
             if getattr(p, "completed", False):
                 lines.append(f"• {title} ({t['completed']})")
             else:
-                lines.append(f"• {title} - Part {p.lesson_step}/{p.total_steps}")
+                # Format: "Topic - Part X" (removed /total_steps)
+                lines.append(f"• {title} - Part {p.lesson_step}")
 
     lines.append("")
     lines.append(f"🧩 *{t['quizzes']}:*")
@@ -455,7 +466,12 @@ def format_progress_review(lessons: list, quizzes: list, language: str = "en") -
             except (json.JSONDecodeError, TypeError):
                 total = 3
             score = q.score if q.score is not None else 0
-            lines.append(f"• {title}: {score}/{total}")
+            # Add lesson_step if available: "Topic - Part X: Score/Total"
+            lesson_step = getattr(q, "lesson_step", None)
+            if lesson_step:
+                lines.append(f"• {title} - Part {lesson_step}: {score}/{total}")
+            else:
+                lines.append(f"• {title}: {score}/{total}")
 
     lines.append("")
     lines.append(f"_{t['keep_learning']}_")

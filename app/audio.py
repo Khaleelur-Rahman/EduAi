@@ -5,9 +5,13 @@ import io
 import tempfile
 import asyncio
 import concurrent.futures
+import warnings
 from typing import Optional, Tuple, List
 from pathlib import Path
 import requests
+
+# Suppress Whisper FP16 warning on CPU
+warnings.filterwarnings("ignore", message="FP16 is not supported on CPU; using FP32 instead", category=UserWarning)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -42,7 +46,10 @@ class STTService:
         """Initialize local Whisper model as fallback."""
         try:
             import whisper
-            self.local_whisper_model = whisper.load_model("base")
+            # Suppress FP16 warning during model loading
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message="FP16 is not supported on CPU; using FP32 instead", category=UserWarning)
+                self.local_whisper_model = whisper.load_model("base")
             logger.info("Local Whisper model loaded successfully")
         except ImportError:
             logger.error("whisper package not installed. Install with: pip install openai-whisper")
@@ -116,7 +123,10 @@ class STTService:
                 tmp_file_path = tmp_file.name
             
             try:
-                result = self.local_whisper_model.transcribe(tmp_file_path, language="en")
+                # Suppress FP16 warning specifically for this transcription
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", message="FP16 is not supported on CPU; using FP32 instead", category=UserWarning)
+                    result = self.local_whisper_model.transcribe(tmp_file_path, language="en")
                 text = result["text"].strip()
                 logger.info(f"Local Whisper transcription successful: {len(text)} characters")
                 return text
@@ -402,9 +412,18 @@ class TTSService:
 stt_service = STTService()
 tts_service = TTSService()
 
-def transcribe_audio(audio_data: bytes, content_type: str = "audio/ogg") -> Optional[str]:
-    """Convenience function to transcribe audio."""
-    return stt_service.transcribe(audio_data, content_type)
+def transcribe_audio(audio_data: bytes, content_type: str = "audio/ogg", language: Optional[str] = None) -> Optional[str]:
+    """Convenience function to transcribe audio.
+    
+    Args:
+        audio_data: Audio file bytes
+        content_type: MIME type of the audio (e.g., audio/ogg, audio/mpeg)
+        language: Optional language code (en, es, fr) - helps accuracy, auto-detected if None
+    
+    Returns:
+        Transcribed text or None if transcription fails
+    """
+    return stt_service.transcribe(audio_data, content_type, language=language)
 
 def synthesize_speech(text: str, voice: str = "alloy", age_group: int = 10) -> Optional[Tuple[bytes, str]]:
     """Convenience function to synthesize speech."""

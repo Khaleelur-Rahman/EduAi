@@ -870,8 +870,6 @@ def process_whatsapp_message_request_audio(db: Session, phone_number: str, messa
     return result
 
 
-
-
 async def process_whatsapp_audio(
     db: Session, 
     phone_number: str, 

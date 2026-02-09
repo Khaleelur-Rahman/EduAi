@@ -21,9 +21,10 @@ from .audio import initialize_audio_services
 # Format: {audio_id: {'bytes': bytes, 'content_type': str, 'created_at': datetime}}
 _temp_audio_store: Dict[str, Dict[str, Any]] = {}
 
-# Temporary in-memory image storage for generated lesson images
+# Temporary in-memory image storage for lesson images
 # Format: {image_id: {'bytes': bytes, 'content_type': str, 'created_at': datetime}}
 _temp_image_store: Dict[str, Dict[str, Any]] = {}
+
 
 
 logging.basicConfig(
@@ -80,7 +81,6 @@ def _detect_command_and_send_loading(phone_number: str, message: str, language: 
     if msg_lower.startswith("/language") or msg_lower.startswith("/lang"):
         # Don't send loading for language command
         return
-
     
     # Detect /next command FIRST (before /lesson to avoid confusion)
     if msg_lower == "/next" or msg_lower.startswith("/next "):
@@ -205,7 +205,8 @@ async def root():
         "endpoints": {
             "webhook": "/whatsapp",
             "health": "/health",
-            "audio": "/audio/{audio_id} (temporary TTS audio serving)"
+            "audio": "/audio/{audio_id} (temporary TTS audio serving)",
+            "image": "/image/{image_id} (temporary lesson image serving)"
         }
     }
 
@@ -232,27 +233,55 @@ async def serve_audio(audio_id: str, request: Request):
         content=audio_bytes,
         media_type=content_type,
         headers={
+            "Cache-Control": "no-cache"
+        }
+    )
+
+@app.get("/image/{image_id}")
+async def serve_image(image_id: str, request: Request):
+    """
+    Temporary endpoint to serve image files for Twilio media messages.
+    Image files are stored in memory and expire after 1 hour.
+    """
+    if image_id not in _temp_image_store:
+        raise HTTPException(status_code=404, detail="Image file not found or expired")
+    
+    image_data = _temp_image_store[image_id]
+    
+    # Check if image has expired (1 hour TTL)
+    if datetime.utcnow() - image_data['created_at'] > timedelta(hours=1):
+        # Clean up expired image
+        del _temp_image_store[image_id]
+        raise HTTPException(status_code=404, detail="Image file expired")
+    
+    content_type = image_data.get('content_type', 'image/jpeg')
+    image_bytes = image_data['bytes']
+    return Response(
+        content=image_bytes,
+        media_type=content_type,
+        headers={
             'Content-Disposition': f'inline; filename="lesson_{audio_id}.mp3"',
             'Content-Length': str(len(audio_bytes)),
             'Cache-Control': 'no-cache',
         }
     )
 
-
 @app.get("/image/{image_id}")
 async def serve_image(image_id: str, request: Request):
     """
-    Temporary endpoint to serve generated images for Twilio media messages.
-    Images are stored in memory and expire after 1 hour.
+    Temporary endpoint to serve image files for Twilio media messages.
+    Image files are stored in memory and expire after 1 hour.
     """
     if image_id not in _temp_image_store:
-        raise HTTPException(status_code=404, detail="Image not found or expired")
+        raise HTTPException(status_code=404, detail="Image file not found or expired")
     
     image_data = _temp_image_store[image_id]
     
+    # Check if image has expired (1 hour TTL)
     if datetime.utcnow() - image_data['created_at'] > timedelta(hours=1):
+        # Clean up expired image
         del _temp_image_store[image_id]
-        raise HTTPException(status_code=404, detail="Image expired")
+        raise HTTPException(status_code=404, detail="Image file expired")
     
     content_type = image_data.get('content_type', 'image/jpeg')
     image_bytes = image_data['bytes']
@@ -265,6 +294,7 @@ async def serve_image(image_id: str, request: Request):
             'Cache-Control': 'no-cache',
         }
     )
+
 
 def _get_base_url(request: Request) -> str:
     """Get the base URL of the server from the request.
@@ -306,7 +336,6 @@ def _store_temp_audio(audio_bytes: bytes, content_type: str) -> str:
     logger.info(f"Stored temporary audio file: {audio_id} ({len(audio_bytes)} bytes)")
     return audio_id
 
-
 def _store_temp_image(image_bytes: bytes, content_type: str) -> str:
     """Store image bytes temporarily and return a unique ID."""
     image_id = str(uuid.uuid4())
@@ -315,7 +344,8 @@ def _store_temp_image(image_bytes: bytes, content_type: str) -> str:
         'content_type': content_type,
         'created_at': datetime.utcnow()
     }
-
+    
+    # Clean up old image files (older than 1 hour)
     current_time = datetime.utcnow()
     expired_ids = [
         iid for iid, data in _temp_image_store.items()
@@ -323,9 +353,11 @@ def _store_temp_image(image_bytes: bytes, content_type: str) -> str:
     ]
     for expired_id in expired_ids:
         del _temp_image_store[expired_id]
-
+    
     logger.info(f"Stored temporary image file: {image_id} ({len(image_bytes)} bytes)")
     return image_id
+
+
 
 
 def _send_response_via_rest(request_or_base_url, phone_number: str, response) -> None:

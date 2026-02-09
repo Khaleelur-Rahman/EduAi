@@ -48,5 +48,8 @@ openai-whisper>=20231117  # Local Whisper fallback (optional, for offline use)
 edge-tts>=6.1.0  # Microsoft Edge TTS fallback (free, Python 3.12 compatible, requires internet)
 torchaudio>=2.4.1  # Already included above, needed for Whisper
 
+# Image generation (resize/compress for WhatsApp)
+Pillow>=10.0.0
+
 # Optional: For better performance with transformers
 # optimum[onnxruntime]==1.16.0  # Uncomment for ONNX acceleration

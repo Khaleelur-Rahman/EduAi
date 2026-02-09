@@ -2,16 +2,18 @@ import logging
 from typing import Tuple, Optional, List, Dict
 from sqlalchemy.orm import Session
 
-from .db import User, Progress, get_user_by_phone, create_user, update_user, create_progress, get_current_lesson, update_progress, get_current_quiz
+from .db import User, Progress, get_user_by_phone, create_user, update_user, create_progress, get_current_lesson, update_progress, get_current_quiz, get_completed_lessons, get_completed_quizzes, get_user_progress
 from .llm import generate_lesson
 from .rag import get_rag_lesson, initialize_rag
 from .quiz import create_quiz_from_lesson, check_quiz_answers
 from .utils import (
     format_for_whatsapp, validate_age,
     get_help_message, parse_lesson_command, 
-    get_greeting_emoji, clean_topic_title, strip_think_tags
+    get_greeting_emoji, clean_topic_title, strip_think_tags,
+    format_progress_review
 )
 from .audio import transcribe_audio, synthesize_speech, synthesize_speech_chunked, tts_service
+from .image import generate_lesson_image
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -195,6 +197,9 @@ What would you like to learn about first? 🚀
         elif message_lower.startswith('/quiz'):
             return self._handle_quiz_command(db, user)
         
+        elif message_lower.startswith('/progress') or message_lower.startswith('/review'):
+            return self._handle_progress_review(db, user)
+        
         elif message_lower.startswith('teach me about '):
             topic = message_lower.replace('teach me about', '').strip()
             if topic and len(topic) > 2:
@@ -205,6 +210,8 @@ What would you like to learn about first? 🚀
             return self._handle_next_command(db, user, for_audio=for_audio)
         elif message_lower.startswith('quiz'):
             return self._handle_quiz_command(db, user)
+        elif message_lower.startswith('progress') or message_lower.startswith('review'):
+            return self._handle_progress_review(db, user)
         elif message_lower.startswith('help'):
             return self._handle_help_command(user)
         
@@ -217,6 +224,12 @@ What would you like to learn about first? 🚀
     
     def _handle_help_command(self, user: User) -> str:
         return get_help_message(user.age, user.language)
+    
+    def _handle_progress_review(self, db: Session, user: User) -> str:
+        """Show completed lessons and quiz scores."""
+        lessons = get_user_progress(db, user.id, limit=10)
+        completed_quizzes = get_completed_quizzes(db, user.id, limit=10)
+        return format_progress_review(lessons, completed_quizzes, language=user.language or "en")
     
     def _handle_lesson_command(self, db: Session, user: User, message: str, for_audio: bool = False) -> str:
         topic = parse_lesson_command(message)
@@ -248,6 +261,7 @@ What would you like to learn about first? 🚀
                 )
                 
                 if chunk_id is None:
+                    update_progress(db, current_lesson, completed=True)
                     return f"Great job! You've completed the lesson on {current_lesson.topic}. Try a new topic with `/lesson <topic>`! 📚"
                 
                 from .llm import llm_service
@@ -776,6 +790,42 @@ def process_whatsapp_message_request_audio(db: Session, phone_number: str, messa
     return result
 
 
+def process_whatsapp_message_request_image(db: Session, phone_number: str, message: str) -> dict:
+    """
+    Handle /image <topic> or /lesson <topic> image: generate lesson + image, return
+    dict with {text, image_bytes?, image_content_type?}.
+    """
+    msg = message.strip()
+    msg_lower = msg.lower()
+    topic = None
+
+    if msg_lower.startswith("/image "):
+        topic = msg[7:].strip()
+    elif msg_lower.startswith("/lesson ") and " image" in msg_lower:
+        parts = msg[7:].strip().split()
+        if "image" in [p.lower() for p in parts]:
+            topic = " ".join(p for p in parts if p.lower() != "image").strip()
+    if not topic:
+        return {"text": "Please specify a topic. Try /image cells or /image photosynthesis. 📷"}
+
+    response_text = process_whatsapp_message(db, phone_number, f"/lesson {topic}", for_audio=False)
+    result = {"text": response_text}
+
+    user = get_user_by_phone(db, phone_number)
+    if not user:
+        user = create_user(db, phone_number)
+    lang = user.language if user else "en"
+
+    img_result = generate_lesson_image(topic, lang)
+    if img_result:
+        result["image_bytes"] = img_result[0]
+        result["image_content_type"] = img_result[1]
+        logger.info(f"/image response: generated image for topic '{topic}'")
+    else:
+        logger.warning("Image generation failed; sending text only")
+    return result
+
+
 async def process_whatsapp_audio(
     db: Session, 
     phone_number: str, 
@@ -899,7 +949,7 @@ async def process_whatsapp_audio(
         
         # Check if transcription matches expected voice format
         transcribed_lower = transcribed_text.lower().strip()
-        voice_format_commands = ['teach me about ', 'lesson ', 'next', 'quiz', 'help']
+        voice_format_commands = ['teach me about ', 'lesson ', 'next', 'quiz', 'help', 'progress', 'review']
         uses_voice_format = any(transcribed_lower.startswith(cmd) for cmd in voice_format_commands)
         
         if not uses_voice_format and user.is_onboarded:
@@ -926,6 +976,8 @@ async def process_whatsapp_audio(
                         loading_text = get_loading_message("next", None, user_language)
                     elif transcribed_lower.startswith("quiz"):
                         loading_text = get_loading_message("quiz", None, user_language)
+                    elif transcribed_lower.startswith("progress") or transcribed_lower.startswith("review"):
+                        loading_text = get_loading_message("progress", None, user_language)
                     
                     if loading_text:
                         twilio_client.messages.create(

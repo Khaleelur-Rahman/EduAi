@@ -160,6 +160,9 @@ def get_help_message(age_group: int, language: str = "en") -> str:
 📚 `/lesson <topic>` - Get a lesson on any topic. (e.g. `/lesson cells`)
 ➡️ `/next` - Continue to next part of lesson
 🧩 `/quiz` - Take a quiz on your current lesson
+🎤 `/audio <topic>` - Get an audio lesson (e.g. `/audio cells`)
+📷 `/image <topic>` - Get a lesson with an illustration
+📊 `/progress` - See your completed lessons and quiz scores
 ❓ `/help` - Show this help message
 
 🎤 *Voice Messages:*
@@ -167,6 +170,7 @@ For voice messages, use this format:
 • Say "Teach me about <topic>" (e.g., "Teach me about cells")
 • Say "Next" to continue
 • Say "Quiz" for a quiz
+• Say "Progress" for your progress
 • Say "Help" for help
 
 """
@@ -221,6 +225,13 @@ def _translate_help_message(text: str, language: str) -> str:
             "Get a lesson on any topic.": "Obtén una lección sobre cualquier tema.",
             "Continue to next part of lesson": "Continuar a la siguiente parte de la lección",
             "Take a quiz on your current lesson": "Hacer un cuestionario sobre tu lección actual",
+            "Get an audio lesson (e.g. `/audio cells`)": "Obtén una lección en audio (ej. `/audio células`)",
+            "Get a lesson with an illustration": "Obtén una lección con ilustración",
+            "See your completed lessons and quiz scores": "Ver tus lecciones completadas y puntuaciones",
+            "/audio <topic>": "/audio <tema>",
+            "/image <topic>": "/imagen <tema>",
+            "/progress": "/progreso",
+            'Say "Progress" for your progress': 'Di "Progreso" para ver tu progreso',
             "Show this help message": "Mostrar este mensaje de ayuda",
             "Voice Messages:": "Mensajes de Voz:",
             "For voice messages, use this format:": "Para mensajes de voz, usa este formato:",
@@ -252,6 +263,13 @@ def _translate_help_message(text: str, language: str) -> str:
             "Get a lesson on any topic.": "Obtenez une leçon sur n'importe quel sujet.",
             "Continue to next part of lesson": "Continuer à la partie suivante de la leçon",
             "Take a quiz on your current lesson": "Faire un quiz sur votre leçon actuelle",
+            "Get an audio lesson (e.g. `/audio cells`)": "Obtenez une leçon audio (ex. `/audio cellules`)",
+            "Get a lesson with an illustration": "Obtenez une leçon avec illustration",
+            "See your completed lessons and quiz scores": "Voir vos leçons terminées et scores de quiz",
+            "/audio <topic>": "/audio <sujet>",
+            "/image <topic>": "/image <sujet>",
+            "/progress": "/progression",
+            'Say "Progress" for your progress': 'Dites "Progression" pour voir votre progression',
             "Show this help message": "Afficher ce message d'aide",
             "Voice Messages:": "Messages Vocaux:",
             "For voice messages, use this format:": "Pour les messages vocaux, utilisez ce format:",
@@ -283,6 +301,13 @@ def _translate_help_message(text: str, language: str) -> str:
             "Get a lesson on any topic.": "Dapatkan pelajaran tentang mana-mana topik.",
             "Continue to next part of lesson": "Teruskan ke bahagian seterusnya pelajaran",
             "Take a quiz on your current lesson": "Ambil kuiz tentang pelajaran semasa anda",
+            "Get an audio lesson (e.g. `/audio cells`)": "Dapatkan pelajaran audio (cth. `/audio sel`)",
+            "Get a lesson with an illustration": "Dapatkan pelajaran dengan ilustrasi",
+            "See your completed lessons and quiz scores": "Lihat pelajaran dan skor kuiz anda",
+            "/audio <topic>": "/audio <tajuk>",
+            "/image <topic>": "/gambar <tajuk>",
+            "/progress": "/kemajuan",
+            'Say "Progress" for your progress': 'Katakan "Kemajuan" untuk kemajuan anda',
             "Show this help message": "Tunjukkan mesej bantuan ini",
             "Voice Messages:": "Mesej Suara:",
             "For voice messages, use this format:": "Untuk mesej suara, gunakan format ini:",
@@ -314,6 +339,13 @@ def _translate_help_message(text: str, language: str) -> str:
             "Get a lesson on any topic.": "获取任何主题的课程。",
             "Continue to next part of lesson": "继续课程的下一个部分",
             "Take a quiz on your current lesson": "对你当前的课程进行测验",
+            "Get an audio lesson (e.g. `/audio cells`)": "获取音频课程（如 `/audio 细胞`）",
+            "Get a lesson with an illustration": "获取带插图的课程",
+            "See your completed lessons and quiz scores": "查看你完成的课程和测验成绩",
+            "/audio <topic>": "/audio <主题>",
+            "/image <topic>": "/image <主题>",
+            "/progress": "/进度",
+            'Say "Progress" for your progress': '说"进度"查看进度',
             "Show this help message": "显示此帮助消息",
             "Voice Messages:": "语音消息：",
             "For voice messages, use this format:": "对于语音消息，请使用此格式：",
@@ -345,6 +377,13 @@ def _translate_help_message(text: str, language: str) -> str:
             "Get a lesson on any topic.": "किसी भी विषय पर पाठ प्राप्त करें।",
             "Continue to next part of lesson": "पाठ के अगले भाग पर जारी रखें",
             "Take a quiz on your current lesson": "अपने वर्तमान पाठ पर क्विज़ लें",
+            "Get an audio lesson (e.g. `/audio cells`)": "ऑडियो पाठ प्राप्त करें (जैसे `/audio कोशिकाएं`)",
+            "Get a lesson with an illustration": "इलस्ट्रेशन के साथ पाठ प्राप्त करें",
+            "See your completed lessons and quiz scores": "अपने पूर्ण पाठ और क्विज़ स्कोर देखें",
+            "/audio <topic>": "/audio <विषय>",
+            "/image <topic>": "/image <विषय>",
+            "/progress": "/प्रगति",
+            'Say "Progress" for your progress': 'प्रगति के लिए "प्रगति" कहें',
             "Show this help message": "यह सहायता संदेश दिखाएं",
             "Voice Messages:": "आवाज़ संदेश:",
             "For voice messages, use this format:": "आवाज़ संदेश के लिए, इस प्रारूप का उपयोग करें:",
@@ -382,6 +421,69 @@ def _translate_help_message(text: str, language: str) -> str:
     return translated
 
 
+def format_progress_review(lessons: list, quizzes: list, language: str = "en") -> str:
+    """Format progress review message for WhatsApp. lessons and quizzes are ORM objects."""
+    import json
+
+    t = _get_progress_translations(language)
+    if not lessons and not quizzes:
+        return f"📊 *{t['your_progress']}*\n\n{t['no_progress']}"
+    lines = [f"📊 *{t['your_progress']}*", ""]
+
+    # Lessons section
+    lines.append(f"📚 *{t['lessons']}:*")
+    if not lessons:
+        lines.append(f"• {t['no_lessons_yet']}")
+    else:
+        for p in lessons[:8]:
+            title = clean_topic_title(p.topic)
+            if getattr(p, "completed", False):
+                lines.append(f"• {title} ({t['completed']})")
+            else:
+                lines.append(f"• {title} - Part {p.lesson_step}/{p.total_steps}")
+
+    lines.append("")
+    lines.append(f"🧩 *{t['quizzes']}:*")
+    if not quizzes:
+        lines.append(f"• {t['no_quizzes_yet']}")
+    else:
+        for q in quizzes[:8]:
+            title = clean_topic_title(q.topic)
+            try:
+                qs = json.loads(q.questions) if isinstance(q.questions, str) else q.questions
+                total = len(qs)
+            except (json.JSONDecodeError, TypeError):
+                total = 3
+            score = q.score if q.score is not None else 0
+            lines.append(f"• {title}: {score}/{total}")
+
+    lines.append("")
+    lines.append(f"_{t['keep_learning']}_")
+    return "\n".join(lines)
+
+
+def _get_progress_translations(language: str) -> dict:
+    """Get progress review translation strings."""
+    translations = {
+        "en": {
+            "your_progress": "Your Progress",
+            "lessons": "Lessons",
+            "quizzes": "Quizzes",
+            "completed": "completed",
+            "no_lessons_yet": "No lessons yet",
+            "no_quizzes_yet": "No quizzes yet",
+            "no_progress": "No lessons or quizzes yet. Start with /lesson cells!",
+            "keep_learning": "Keep learning with /lesson <topic>!",
+        },
+        "es": {"your_progress": "Tu progreso", "lessons": "Lecciones", "quizzes": "Cuestionarios", "completed": "completado", "no_lessons_yet": "Aún no hay lecciones", "no_quizzes_yet": "Aún no hay cuestionarios", "no_progress": "Aún no hay lecciones ni cuestionarios. ¡Empieza con /lección células!", "keep_learning": "¡Sigue aprendiendo con /lección <tema>!"},
+        "fr": {"your_progress": "Votre progression", "lessons": "Leçons", "quizzes": "Quiz", "completed": "terminé", "no_lessons_yet": "Pas encore de leçons", "no_quizzes_yet": "Pas encore de quiz", "no_progress": "Pas encore de leçons ni de quiz. Commencez avec /leçon cellules !", "keep_learning": "Continuez avec /leçon <sujet> !"},
+        "ms": {"your_progress": "Kemajuan anda", "lessons": "Pelajaran", "quizzes": "Kuiz", "completed": "siap", "no_lessons_yet": "Belum ada pelajaran", "no_quizzes_yet": "Belum ada kuiz", "no_progress": "Belum ada pelajaran atau kuiz. Mulakan dengan /pelajaran sel!", "keep_learning": "Terus belajar dengan /pelajaran <tajuk>!"},
+        "zh": {"your_progress": "你的进度", "lessons": "课程", "quizzes": "测验", "completed": "已完成", "no_lessons_yet": "暂无课程", "no_quizzes_yet": "暂无测验", "no_progress": "暂无课程或测验。用 /lesson 细胞 开始！", "keep_learning": "继续学习：/lesson <主题>！"},
+        "hi": {"your_progress": "आपकी प्रगति", "lessons": "पाठ", "quizzes": "क्विज़", "completed": "पूर्ण", "no_lessons_yet": "अभी तक कोई पाठ नहीं", "no_quizzes_yet": "अभी तक कोई क्विज़ नहीं", "no_progress": "अभी तक कोई पाठ या क्विज़ नहीं। /lesson कोशिकाएं से शुरू करें!", "keep_learning": "/lesson <विषय> से सीखते रहें!"},
+    }
+    return translations.get(language, translations["en"])
+
+
 def get_loading_message(command_type: str, topic: str = None, language: str = "en") -> str:
     """Get loading message in the specified language."""
     translations = {
@@ -389,36 +491,42 @@ def get_loading_message(command_type: str, topic: str = None, language: str = "e
             "lesson": f"⏳ Loading lesson: {topic.title()}" if topic else "⏳ LOADING LESSON...",
             "next": "⏳ Loading next part...",
             "quiz": "⏳ Loading quiz...",
+            "progress": "⏳ Loading your progress...",
             "default": "⏳ LOADING...",
         },
         "es": {
             "lesson": f"⏳ Cargando lección: {topic.title()}" if topic else "⏳ CARGANDO LECCIÓN...",
             "next": "⏳ Cargando siguiente parte...",
             "quiz": "⏳ Cargando cuestionario...",
+            "progress": "⏳ Cargando tu progreso...",
             "default": "⏳ CARGANDO...",
         },
         "fr": {
             "lesson": f"⏳ Chargement de la leçon: {topic.title()}" if topic else "⏳ CHARGEMENT DE LA LEÇON...",
             "next": "⏳ Chargement de la partie suivante...",
             "quiz": "⏳ Chargement du quiz...",
+            "progress": "⏳ Chargement de votre progression...",
             "default": "⏳ CHARGEMENT...",
         },
         "ms": {
             "lesson": f"⏳ Memuatkan pelajaran: {topic.title()}" if topic else "⏳ MEMUATKAN PELAJARAN...",
             "next": "⏳ Memuatkan bahagian seterusnya...",
             "quiz": "⏳ Memuatkan kuiz...",
+            "progress": "⏳ Memuatkan kemajuan anda...",
             "default": "⏳ MEMUATKAN...",
         },
         "zh": {
             "lesson": f"⏳ 加载课程: {topic.title()}" if topic else "⏳ 加载课程中...",
             "next": "⏳ 加载下一部分...",
             "quiz": "⏳ 加载测验...",
+            "progress": "⏳ 加载你的进度...",
             "default": "⏳ 加载中...",
         },
         "hi": {
             "lesson": f"⏳ पाठ लोड हो रहा है: {topic.title()}" if topic else "⏳ पाठ लोड हो रहा है...",
             "next": "⏳ अगला भाग लोड हो रहा है...",
             "quiz": "⏳ क्विज़ लोड हो रहा है...",
+            "progress": "⏳ आपकी प्रगति लोड हो रही है...",
             "default": "⏳ लोड हो रहा है...",
         },
     }

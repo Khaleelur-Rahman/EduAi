@@ -131,6 +131,14 @@ def get_user_progress(db: Session, user_id: int, limit: int = 10):
     return db.query(Progress).filter(Progress.user_id == user_id).order_by(Progress.created_at.desc()).limit(limit).all()
 
 
+def get_completed_lessons(db: Session, user_id: int, limit: int = 10):
+    """Return lessons marked as completed, ordered by most recent first."""
+    return db.query(Progress).filter(
+        Progress.user_id == user_id,
+        Progress.completed == True
+    ).order_by(Progress.updated_at.desc()).limit(limit).all()
+
+
 def create_progress(db: Session, user_id: int, topic: str, lesson_content: str, total_steps: int = 1, 
                    is_rag_lesson: bool = False, chunk_id: str = None) -> Progress:
     progress = Progress(
@@ -201,6 +209,16 @@ def update_quiz_progress(db: Session, quiz: QuizProgress, **kwargs) -> QuizProgr
 
 def get_user_quizzes(db: Session, user_id: int, limit: int = 10):
     return db.query(QuizProgress).filter(QuizProgress.user_id == user_id).order_by(QuizProgress.created_at.desc()).limit(limit).all()
+
+
+def get_completed_quizzes(db: Session, user_id: int, limit: int = 10):
+    """Return completed quizzes with scores, ordered by most recent first."""
+    return db.query(QuizProgress).filter(
+        QuizProgress.user_id == user_id,
+        QuizProgress.completed == True
+    ).order_by(QuizProgress.updated_at.desc()).limit(limit).all()
+
+
 if __name__ == "__main__":
     create_tables()
     print("Database tables created successfully!")

@@ -108,18 +108,14 @@ def test_image_response_routing():
 
 
 def test_store_temp_image_and_serve():
-    """Image store and serve endpoint work correctly."""
-    from app.main import _temp_image_store, _store_temp_image
+    """Image store and serve endpoint work correctly (file-based storage)."""
+    from app.main import _store_temp_image
     from fastapi.testclient import TestClient
     from app.main import app
 
-    # Clear store for test
-    _temp_image_store.clear()
     fake_img = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100  # Minimal PNG-like bytes
     img_id = _store_temp_image(fake_img, "image/png")
-    assert img_id in _temp_image_store
-    assert _temp_image_store[img_id]["bytes"] == fake_img
-    assert _temp_image_store[img_id]["content_type"] == "image/png"
+    assert img_id and len(img_id) == 36  # UUID format
     print(f"  ✓ _store_temp_image stores and returns id: {img_id[:8]}...")
 
     client = TestClient(app)

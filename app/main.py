@@ -1,7 +1,9 @@
 import os
 import logging
+import tempfile
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Dict, Any
 from datetime import datetime, timedelta
 
@@ -21,9 +23,9 @@ from .audio import initialize_audio_services
 # Format: {audio_id: {'bytes': bytes, 'content_type': str, 'created_at': datetime}}
 _temp_audio_store: Dict[str, Dict[str, Any]] = {}
 
-# Temporary in-memory image storage for lesson images
-# Format: {image_id: {'bytes': bytes, 'content_type': str, 'created_at': datetime}}
-_temp_image_store: Dict[str, Dict[str, Any]] = {}
+# Temporary image storage: file-based so Twilio can fetch media after process restarts (e.g. reload)
+_TEMP_IMAGE_DIR: Path = Path(os.getenv("TEMP_IMAGE_DIR", tempfile.gettempdir())) / "eduai_images"
+_TEMP_IMAGE_TTL_HOURS = 1
 
 
 
@@ -183,11 +185,14 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to initialize audio services: {str(e)}")
         logger.warning("Application will continue but audio features may not be available")
     
+    # Ensure temp image directory exists (file-based storage survives reloads so Twilio can fetch media)
+    _TEMP_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    logger.info("Temp image dir: %s", _TEMP_IMAGE_DIR)
+
     yield
     
     # Cleanup: Clear temporary media stores on shutdown
     _temp_audio_store.clear()
-    _temp_image_store.clear()
     logger.info("Shutting down EduBot application...")
 
 app = FastAPI(
@@ -237,33 +242,45 @@ async def serve_audio(audio_id: str, request: Request):
         }
     )
 
+def _image_paths(image_id: str) -> tuple[Path, Path, Path]:
+    """Return (data path, content-type path, created-at path) for an image_id."""
+    base = _TEMP_IMAGE_DIR / image_id
+    return base.with_suffix(".dat"), base.with_suffix(".ct"), base.with_suffix(".ts")
+
+
 @app.get("/image/{image_id}")
 async def serve_image(image_id: str, request: Request):
     """
     Temporary endpoint to serve image files for Twilio media messages.
-    Image files are stored in memory and expire after 1 hour.
+    Images are stored on disk so they remain available after process restarts (e.g. reload).
     """
-    if image_id not in _temp_image_store:
+    # Sanitize: only allow UUID-like ids (alphanumeric and hyphen)
+    if not image_id.replace("-", "").isalnum() or len(image_id) > 64:
         raise HTTPException(status_code=404, detail="Image file not found or expired")
-    
-    image_data = _temp_image_store[image_id]
-    
-    # Check if image has expired (1 hour TTL)
-    if datetime.utcnow() - image_data['created_at'] > timedelta(hours=1):
-        # Clean up expired image
-        del _temp_image_store[image_id]
+    dat_path, ct_path, ts_path = _image_paths(image_id)
+    if not dat_path.exists() or not ct_path.exists() or not ts_path.exists():
+        raise HTTPException(status_code=404, detail="Image file not found or expired")
+    try:
+        created_ts = float(ts_path.read_text().strip())
+    except (ValueError, OSError):
+        raise HTTPException(status_code=404, detail="Image file not found or expired")
+    if datetime.utcnow().timestamp() - created_ts > _TEMP_IMAGE_TTL_HOURS * 3600:
+        for p in (dat_path, ct_path, ts_path):
+            try:
+                p.unlink(missing_ok=True)
+            except OSError:
+                pass
         raise HTTPException(status_code=404, detail="Image file expired")
-    
-    content_type = image_data.get('content_type', 'image/jpeg')
-    image_bytes = image_data['bytes']
+    content_type = ct_path.read_text().strip() or "image/jpeg"
+    image_bytes = dat_path.read_bytes()
     return Response(
         content=image_bytes,
         media_type=content_type,
         headers={
-            'Content-Disposition': f'inline; filename="lesson_{image_id}.jpg"',
-            'Content-Length': str(len(image_bytes)),
-            'Cache-Control': 'no-cache',
-        }
+            "Content-Disposition": f'inline; filename="lesson_{image_id}.jpg"',
+            "Content-Length": str(len(image_bytes)),
+            "Cache-Control": "no-cache",
+        },
     )
 
 
@@ -308,24 +325,31 @@ def _store_temp_audio(audio_bytes: bytes, content_type: str) -> str:
     return audio_id
 
 def _store_temp_image(image_bytes: bytes, content_type: str) -> str:
-    """Store image bytes temporarily and return a unique ID."""
+    """Store image bytes on disk temporarily and return a unique ID.
+    File-based storage so Twilio can fetch the media URL after process restarts (e.g. reload).
+    """
     image_id = str(uuid.uuid4())
-    _temp_image_store[image_id] = {
-        'bytes': image_bytes,
-        'content_type': content_type,
-        'created_at': datetime.utcnow()
-    }
-    
-    # Clean up old image files (older than 1 hour)
-    current_time = datetime.utcnow()
-    expired_ids = [
-        iid for iid, data in _temp_image_store.items()
-        if current_time - data['created_at'] > timedelta(hours=1)
-    ]
-    for expired_id in expired_ids:
-        del _temp_image_store[expired_id]
-    
-    logger.info(f"Stored temporary image file: {image_id} ({len(image_bytes)} bytes)")
+    dat_path, ct_path, ts_path = _image_paths(image_id)
+    try:
+        dat_path.write_bytes(image_bytes)
+        ct_path.write_text(content_type)
+        ts_path.write_text(str(datetime.utcnow().timestamp()))
+    except OSError as e:
+        logger.error("Failed to write temp image %s: %s", image_id, e)
+        raise
+    # Clean up expired image files from disk (older than TTL)
+    cutoff = datetime.utcnow().timestamp() - (_TEMP_IMAGE_TTL_HOURS * 3600)
+    for p in _TEMP_IMAGE_DIR.iterdir():
+        if p.suffix != ".ts":
+            continue
+        try:
+            if p.stat().st_mtime < cutoff:
+                base = p.stem
+                for ext in (".dat", ".ct", ".ts"):
+                    (_TEMP_IMAGE_DIR / (base + ext)).unlink(missing_ok=True)
+        except OSError:
+            pass
+    logger.info("Stored temporary image file: %s (%s bytes)", image_id, len(image_bytes))
     return image_id
 
 

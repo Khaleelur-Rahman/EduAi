@@ -18,6 +18,26 @@ from .image import generate_lesson_image
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+def _attach_lesson_image(result: dict, topic: str, language: str, context: str = "lesson") -> None:
+    """Generate an image for the lesson/next topic and attach to result dict. Uses a safe, short topic for the image API."""
+    lang = language or "en"
+    # Use a clean, short topic so image API succeeds (avoid long/special strings from DB)
+    image_topic = (clean_topic_title(topic).strip() if topic else "") or "lesson"
+    if len(image_topic) > 40:
+        image_topic = image_topic.split()[0] if image_topic.split() else "lesson"
+    try:
+        img_result = generate_lesson_image(image_topic, lang)
+        if img_result:
+            result["image_bytes"] = img_result[0]
+            result["image_content_type"] = img_result[1]
+            logger.info("Generated image for /%s topic '%s'", context, topic)
+        else:
+            logger.warning("Image generation failed for /%s topic '%s'; sending text only", context, topic)
+    except Exception as e:
+        logger.warning("Image generation error for /%s topic '%s': %s; sending text only", context, topic, e)
+
+
 class MessageHandler:
     
     def __init__(self):
@@ -439,16 +459,9 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
                 if for_audio:
                     return result_text
                 
-                # For text lessons, add image synchronously
+                # For text lessons, always add image (same as /lesson)
                 result = {"text": result_text}
-                lang = user.language if user else "en"
-                img_result = generate_lesson_image(current_lesson.topic, lang)
-                if img_result:
-                    result["image_bytes"] = img_result[0]
-                    result["image_content_type"] = img_result[1]
-                    logger.info(f"Generated image for /next topic '{current_lesson.topic}'")
-                else:
-                    logger.warning(f"Image generation failed for /next topic '{current_lesson.topic}'; sending text only")
+                _attach_lesson_image(result, current_lesson.topic, user.language, "next")
                 return result
             
             else:
@@ -468,16 +481,9 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
                 if for_audio:
                     return result_text
                 
-                # For text lessons, add image synchronously
+                # For text lessons, always add image (same as /lesson)
                 result = {"text": result_text}
-                lang = user.language if user else "en"
-                img_result = generate_lesson_image(current_lesson.topic, lang)
-                if img_result:
-                    result["image_bytes"] = img_result[0]
-                    result["image_content_type"] = img_result[1]
-                    logger.info(f"Generated image for /next topic '{current_lesson.topic}'")
-                else:
-                    logger.warning(f"Image generation failed for /next topic '{current_lesson.topic}'; sending text only")
+                _attach_lesson_image(result, current_lesson.topic, user.language, "next")
                 return result
         
         except Exception as e:
@@ -681,16 +687,9 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
             if for_audio:
                 return result_text
             
-            # For text lessons, add image synchronously
+            # For text lessons, add image (same helper as /next)
             result = {"text": result_text}
-            lang = user.language if user else "en"
-            img_result = generate_lesson_image(topic, lang)
-            if img_result:
-                result["image_bytes"] = img_result[0]
-                result["image_content_type"] = img_result[1]
-                logger.info(f"Generated image for RAG lesson topic '{topic}'")
-            else:
-                logger.warning(f"Image generation failed for RAG lesson topic '{topic}'; sending text only")
+            _attach_lesson_image(result, topic, user.language, "lesson")
             return result
         
         except Exception as e:
@@ -712,16 +711,9 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
             if for_audio:
                 return result_text
             
-            # For text lessons, add image synchronously
+            # For text lessons, add image (same helper as /next)
             result = {"text": result_text}
-            lang = user.language if user else "en"
-            img_result = generate_lesson_image(topic, lang)
-            if img_result:
-                result["image_bytes"] = img_result[0]
-                result["image_content_type"] = img_result[1]
-                logger.info(f"Generated image for RAG lesson topic '{topic}'")
-            else:
-                logger.warning(f"Image generation failed for RAG lesson topic '{topic}'; sending text only")
+            _attach_lesson_image(result, topic, user.language, "lesson")
             return result
         
         except Exception as e:

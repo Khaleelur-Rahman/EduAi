@@ -8,7 +8,11 @@ def strip_think_tags(text: str) -> str:
     """Remove <think>...</think> blocks from LLM output (Qwen/Cerebras thinking tokens)."""
     if not text or not text.strip():
         return text
-    return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE).strip()
+    # Remove complete <think>...</think> blocks
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    # Remove unclosed <think>... at start (e.g. if response was cut off)
+    text = re.sub(r'<think>.*', '', text, flags=re.DOTALL | re.IGNORECASE)
+    return text.strip()
 
 
 def clean_whatsapp_formatting(text: str) -> str:

@@ -742,7 +742,6 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
             if all(chunk['similarity_score'] < self.rag_confidence_threshold for chunk in retrieved_chunks):
                 logger.info(f"Low confidence RAG retrieval for topic '{topic}' - scores: {[c['similarity_score'] for c in retrieved_chunks]}")
                 return False, retrieved_chunks, None
-            
             chunk_id = retrieved_chunks[0]['chunk_id']
             logger.info(f"High confidence RAG retrieval for topic '{topic}' - best score: {retrieved_chunks[0]['similarity_score']:.3f}")
             return True, retrieved_chunks, chunk_id

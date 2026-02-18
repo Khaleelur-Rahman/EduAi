@@ -12,7 +12,7 @@ from twilio.twiml.messaging_response import MessagingResponse
 from twilio.rest import Client as TwilioClient
 
 from .db import get_db, create_tables
-from .handlers import process_whatsapp_message, process_whatsapp_audio, process_whatsapp_message_request_audio
+from .handlers import process_whatsapp_message, process_whatsapp_audio, process_whatsapp_message_request_audio, process_whatsapp_message_request_video
 from .llm import initialize_llm
 from .rag import initialize_rag
 from .audio import initialize_audio_services
@@ -20,6 +20,9 @@ from .audio import initialize_audio_services
 # Temporary in-memory audio storage for TTS files
 # Format: {audio_id: {'bytes': bytes, 'content_type': str, 'created_at': datetime}}
 _temp_audio_store: Dict[str, Dict[str, Any]] = {}
+
+# Temporary in-memory video storage for generated videos (Twilio media_url)
+_temp_video_store: Dict[str, Dict[str, Any]] = {}
 
 
 
@@ -107,6 +110,12 @@ def _detect_command_and_send_loading(phone_number: str, message: str, language: 
         _send_loading_message(phone_number, "quiz", None, language)
         return
     
+    # Detect /video command
+    if msg_lower.startswith("/video"):
+        topic = msg_stripped[6:].strip() if len(msg_stripped) > 6 else ""
+        _send_loading_message(phone_number, "video", topic or None, language)
+        return
+    
     # Detect /progress and /review commands (no loading message)
     if msg_lower.startswith("/progress") or msg_lower.startswith("/review"):
         return
@@ -182,6 +191,7 @@ async def lifespan(app: FastAPI):
     
     # Cleanup: Clear temporary media stores on shutdown
     _temp_audio_store.clear()
+    _temp_video_store.clear()
     logger.info("Shutting down EduBot application...")
 
 app = FastAPI(
@@ -199,7 +209,8 @@ async def root():
         "endpoints": {
             "webhook": "/whatsapp",
             "health": "/health",
-            "audio": "/audio/{audio_id} (temporary TTS audio serving)"
+            "audio": "/audio/{audio_id} (temporary TTS audio serving)",
+            "video": "/video/{video_id} (temporary video serving)"
         }
     }
 
@@ -232,6 +243,31 @@ async def serve_audio(audio_id: str, request: Request):
         }
     )
 
+
+@app.get("/video/{video_id}")
+async def serve_video(video_id: str):
+    """
+    Temporary endpoint to serve video files for Twilio media messages.
+    Videos are stored in memory and expire after 1 hour. Twilio requires
+    Content-Type and Content-Length for media_url.
+    """
+    if video_id not in _temp_video_store:
+        raise HTTPException(status_code=404, detail="Video file not found or expired")
+    video_data = _temp_video_store[video_id]
+    if datetime.utcnow() - video_data["created_at"] > timedelta(hours=1):
+        del _temp_video_store[video_id]
+        raise HTTPException(status_code=404, detail="Video file expired")
+    content_type = video_data.get("content_type", "video/mp4")
+    video_bytes = video_data["bytes"]
+    return Response(
+        content=video_bytes,
+        media_type=content_type,
+        headers={
+            "Content-Disposition": f'inline; filename="lesson_{video_id}.mp4"',
+            "Content-Length": str(len(video_bytes)),
+            "Cache-Control": "no-cache",
+        },
+    )
 
 
 def _get_base_url(request: Request) -> str:
@@ -273,6 +309,25 @@ def _store_temp_audio(audio_bytes: bytes, content_type: str) -> str:
     
     logger.info(f"Stored temporary audio file: {audio_id} ({len(audio_bytes)} bytes)")
     return audio_id
+
+
+def _store_temp_video(video_bytes: bytes, content_type: str) -> str:
+    """Store video bytes temporarily and return a unique ID."""
+    video_id = str(uuid.uuid4())
+    _temp_video_store[video_id] = {
+        "bytes": video_bytes,
+        "content_type": content_type,
+        "created_at": datetime.utcnow(),
+    }
+    current_time = datetime.utcnow()
+    expired_ids = [
+        vid for vid, data in _temp_video_store.items()
+        if current_time - data["created_at"] > timedelta(hours=1)
+    ]
+    for eid in expired_ids:
+        del _temp_video_store[eid]
+    logger.info(f"Stored temporary video file: {video_id} ({len(video_bytes)} bytes)")
+    return video_id
 
 
 
@@ -363,6 +418,60 @@ def _send_response_via_rest(request_or_base_url, phone_number: str, response) ->
                 logger.info(f"Sent single audio via REST: {audio_url}")
             except Exception as e:
                 logger.error(f"Error sending audio via REST: {e}")
+                if text:
+                    try:
+                        TWILIO_CLIENT.messages.create(from_=from_twilio, to=to_user, body=text)
+                    except:
+                        pass
+        elif response.get("video_url"):
+            try:
+                video_url = response["video_url"]
+                body = text.strip() if text else None
+                if body:
+                    TWILIO_CLIENT.messages.create(
+                        from_=from_twilio,
+                        to=to_user,
+                        body=body,
+                        media_url=[video_url],
+                    )
+                else:
+                    TWILIO_CLIENT.messages.create(
+                        from_=from_twilio,
+                        to=to_user,
+                        media_url=[video_url],
+                    )
+                logger.info(f"Sent video via REST: {video_url[:80]}...")
+            except Exception as e:
+                logger.error(f"Error sending video via REST: {e}")
+                if text:
+                    try:
+                        TWILIO_CLIENT.messages.create(from_=from_twilio, to=to_user, body=text)
+                    except:
+                        pass
+        elif response.get("video_bytes"):
+            try:
+                video_id = _store_temp_video(
+                    response["video_bytes"],
+                    response.get("video_content_type", "video/mp4"),
+                )
+                video_url = f"{base_url}/video/{video_id}"
+                body = text.strip() if text else None
+                if body:
+                    TWILIO_CLIENT.messages.create(
+                        from_=from_twilio,
+                        to=to_user,
+                        body=body,
+                        media_url=[video_url],
+                    )
+                else:
+                    TWILIO_CLIENT.messages.create(
+                        from_=from_twilio,
+                        to=to_user,
+                        media_url=[video_url],
+                    )
+                logger.info(f"Sent video via REST: {video_url}")
+            except Exception as e:
+                logger.error(f"Error sending video via REST: {e}")
                 if text:
                     try:
                         TWILIO_CLIENT.messages.create(from_=from_twilio, to=to_user, body=text)
@@ -518,6 +627,8 @@ def _process_message_in_background(
         msg_lower = body_text.strip().lower()
         if msg_lower.startswith("/audio"):
             response = process_whatsapp_message_request_audio(db, phone_number, body_text)
+        elif msg_lower.startswith("/video"):
+            response = process_whatsapp_message_request_video(db, phone_number, body_text)
         else:
             response = process_whatsapp_message(db, phone_number, body_text)
         
@@ -613,6 +724,7 @@ async def whatsapp_webhook(
         # Check if this is a command that needs loading message + background processing
         is_command = (
             msg_lower.startswith("/audio") or
+            msg_lower.startswith("/video") or
             msg_lower.startswith("/lesson") or
             msg_lower.startswith("/next") or
             msg_lower.startswith("/quiz") or

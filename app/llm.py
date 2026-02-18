@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 class LLMService:
     
     def __init__(self):
-        self.model_name = os.getenv("CEREBRAS_MODEL", "qwen-3-32b")  # Use qwen-3-32b (235b deprecated)
+        self.model_name = os.getenv("CEREBRAS_MODEL", "gpt-oss-120b")  # Cerebras Cloud production model
         self.api_key = os.getenv("CEREBRAS_API_KEY")
         self.client = None
         self.max_tokens = 1000  # Increased to ensure complete responses
@@ -37,24 +37,18 @@ class LLMService:
             test_response = self.client.chat.completions.create(
                 model=self.model_name,
                 messages=[
-                    {"role": "user", "content": "Hello, can you respond with just 'OK'?"}
+                    {"role": "user", "content": "Reply with only the word OK."}
                 ],
                 max_completion_tokens=10,
                 temperature=0.1,
                 top_p=0.8,
-                stream=True
+                stream=False
             )
-            
-            response_content = ""
-            for chunk in test_response:
-                if chunk.choices[0].delta.content:
-                    response_content += chunk.choices[0].delta.content
-            
-            if response_content.strip():
-                logger.info(f"Cerebras connection successful: {response_content.strip()}")
-                self._initialized = True
-            else:
+            if not getattr(test_response, "choices", None) or len(test_response.choices) == 0:
                 raise Exception("No response from Cerebras API")
+            response_content = (getattr(test_response.choices[0].message, "content", None) or "").strip()
+            logger.info("Cerebras connection successful: %s", response_content or "(ok)")
+            self._initialized = True
                 
         except Exception as e:
             logger.error(f"Failed to initialize Cerebras client: {str(e)}")
@@ -202,7 +196,6 @@ Continue the lesson naturally, referencing what was just covered and building on
             
             # Check if content appears to be truncated (doesn't end with proper punctuation)
             # Allow emojis at the end, but check the text before emojis
-            import re
             # Remove trailing emojis and whitespace to check actual ending
             text_without_emojis = re.sub(r'[\s\U0001F300-\U0001F9FF]+$', '', lesson_content.rstrip())
             if lesson_content and text_without_emojis and not text_without_emojis.endswith(('.', '!', '?', ':', ';')):
@@ -240,7 +233,6 @@ Continue the lesson naturally, referencing what was just covered and building on
                         lesson_content += " " + completion
                     
                     # Ensure completion ends with punctuation (before any emojis)
-                    import re
                     text_without_emojis = re.sub(r'[\s\U0001F300-\U0001F9FF]+$', '', lesson_content.rstrip())
                     if text_without_emojis and not text_without_emojis.endswith(('.', '!', '?', ':', ';')):
                         # Add punctuation if missing
@@ -281,18 +273,195 @@ Continue the lesson naturally, referencing what was just covered and building on
             logger.error(f"Failed to generate lesson with Cerebras: {str(e)}")
             logger.info(f"Falling back to predefined lesson for topic: {topic}")
             return self._get_fallback_lesson(topic, age_group)
-    
+
+    def generate_video_narration(self, topic: str, age_group: int = 10, language: str = "en") -> str:
+        """
+        Generate a short narration script (4-6 sentences) for video TTS.
+        Used by short-video-maker; English only. Returns plain text for voiceover.
+        Tries Cerebras first, then OpenAI if available, then static fallback.
+        """
+        if language and language.lower() != "en":
+            return self._video_narration_fallback(topic)
+        t = topic.strip().title()
+        system = (
+            "You write short voiceover scripts for educational videos. Output ONLY the narration text, no titles or labels. "
+            "Rules: Exactly 4 to 6 short sentences. Include 2 to 3 concrete facts and one simple example. "
+            "Length: about 20 to 30 seconds when read aloud (roughly 50–80 words). "
+            "Plain prose, written to be read aloud. No bullet points, no markdown. "
+            "Do not include <think>, reasoning, or any text that is not the spoken narration."
+        )
+        user = (
+            f'Write the voiceover for a short educational video about "{t}". '
+            f"Audience: {age_group} years old. "
+            "Include 2–3 concrete facts and one simple example. "
+            "Output only the narration, nothing else."
+        )
+        # Try Cerebras first (non-stream then stream)
+        cerebras_narration = ""
+        if self._initialized or self._try_initialize():
+            try:
+                cerebras_narration = self._video_narration_via_cerebras(system, user)
+                if cerebras_narration and len(cerebras_narration) > 50:
+                    # Keep to ~80 words for 20–30s TTS; stream may return more (we use lesson-style token limit)
+                    words = cerebras_narration.split()
+                    if len(words) > 100:
+                        cerebras_narration = " ".join(words[:100]).rstrip()
+                        if not cerebras_narration.endswith((".", "!", "?")):
+                            cerebras_narration += "."
+                    logger.info("Video narration for '%s': using Cerebras (%s chars)", topic, len(cerebras_narration))
+                    return cerebras_narration
+                if cerebras_narration:
+                    logger.warning(
+                        "Video narration (Cerebras) for '%s' too short (%s chars), trying OpenAI then fallback",
+                        topic,
+                        len(cerebras_narration),
+                    )
+            except Exception as e:
+                logger.warning("Video narration (Cerebras) failed for '%s': %s", topic, e)
+        # Fallback: OpenAI if API key is set
+        narration = self._video_narration_via_openai(topic, age_group, system, user)
+        if narration and len(narration) > 50:
+            logger.info("Video narration for '%s': using OpenAI fallback (%s chars)", topic, len(narration))
+            return narration
+        logger.info(
+            "Video narration for '%s': using static fallback (Cerebras len=%s, OpenAI unavailable or short)",
+            topic,
+            len(cerebras_narration),
+        )
+        return self._video_narration_fallback(topic)
+
+    def _try_initialize(self) -> bool:
+        """Initialize Cerebras if possible; return True if client is ready."""
+        try:
+            self.initialize()
+            return self._initialized and self.client is not None
+        except Exception:
+            return False
+
+    def _video_narration_via_cerebras(self, system: str, user: str) -> str:
+        """Generate narration using Cerebras; returns stripped text or empty string."""
+        # Use streaming first (same as lesson): this model returns content for stream=True
+        # but often 0 chars for stream=False. Use same token limit as lesson so API returns content.
+        raw = self._video_narration_cerebras_stream(system, user)
+        if not raw or len(raw.strip()) < 30:
+            raw = self._video_narration_cerebras_nonstream(system, user)
+        if not raw or len(raw.strip()) < 30:
+            logger.debug(
+                "Video narration Cerebras: both stream and non-stream returned short/empty",
+            )
+        return self._video_narration_parse_raw(raw)
+
+    def _video_narration_cerebras_stream(self, system: str, user: str) -> str:
+        """Get raw narration text from Cerebras streaming API. Use same token limit as lesson so API returns content."""
+        response = self.client.chat.completions.create(
+            model=self.model_name,
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+            max_completion_tokens=self.max_tokens,
+            temperature=self.temperature,
+            top_p=self.top_p,
+            stream=True,
+        )
+        raw = ""
+        for chunk in response:
+            if chunk.choices and chunk.choices[0].delta.content:
+                raw += chunk.choices[0].delta.content
+        return raw.strip()
+
+    def _video_narration_cerebras_nonstream(self, system: str, user: str) -> str:
+        """Get raw narration from Cerebras non-streaming API."""
+        try:
+            resp = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+                max_completion_tokens=200,
+                temperature=0.6,
+                top_p=0.8,
+                stream=False,
+            )
+            if not getattr(resp, "choices", None) or len(resp.choices) == 0:
+                logger.warning("Cerebras non-stream: no choices in response")
+                return ""
+            choice = resp.choices[0]
+            message = getattr(choice, "message", None)
+            if message is None:
+                logger.warning("Cerebras non-stream: choices[0] has no message")
+                return ""
+            content = getattr(message, "content", None)
+            if content is None and isinstance(message, dict):
+                content = message.get("content")
+            text = (content or "").strip()
+            logger.info("Cerebras non-stream video narration: %s chars", len(text))
+            return text
+        except Exception as e:
+            logger.warning("Cerebras non-stream video narration failed: %s", e)
+            return ""
+
+    def _video_narration_parse_raw(self, raw: str) -> str:
+        """Strip <think> tags and prefer outer text; use <think> inner text if outer is too short."""
+        if not raw or not raw.strip():
+            return ""
+        raw = raw.strip()
+        # Prefer text outside <think> (the actual narration)
+        narration = re.sub(r'<think>.*?</think>', '', raw, flags=re.DOTALL | re.IGNORECASE)
+        if narration.strip().lower().startswith("<think>"):
+            narration = re.sub(r"^<think>.*", "", narration, flags=re.DOTALL | re.IGNORECASE)
+        narration = narration.strip()
+        # If model put the answer inside <think>, use that (many reasoning models do)
+        if len(narration) <= 50 and "<think>" in raw.lower():
+            match = re.search(r'<think>\s*(.*?)\s*</think>', raw, re.DOTALL | re.IGNORECASE)
+            if match and len(match.group(1).strip()) > 50:
+                narration = match.group(1).strip()
+        # If parsing removed everything but we had content, use raw (minimal strip)
+        if not narration and len(raw) > 50:
+            narration = re.sub(r'<think>\s*', '', raw, flags=re.IGNORECASE)
+            narration = re.sub(r'\s*</think>', '', narration, flags=re.IGNORECASE)
+            narration = narration.strip()
+        return narration
+
+    def _video_narration_via_openai(self, topic: str, age_group: int, system: str, user: str) -> str:
+        """Fallback: generate narration via OpenAI if OPENAI_API_KEY is set. Returns empty string if unavailable."""
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            return ""
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key)
+            resp = client.chat.completions.create(
+                model=os.getenv("OPENAI_VIDEO_NARRATION_MODEL", "gpt-4o-mini"),
+                messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+                max_tokens=200,
+                temperature=0.6,
+            )
+            content = (resp.choices[0].message.content or "").strip()
+            content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL | re.IGNORECASE)
+            if content.strip().lower().startswith("<think>"):
+                content = re.sub(r"^<think>.*", "", content, flags=re.DOTALL | re.IGNORECASE)
+            return content.strip()
+        except Exception as e:
+            logger.warning("Video narration (OpenAI fallback) failed for '%s': %s", topic, e)
+            return ""
+
+    def _video_narration_fallback(self, topic: str) -> str:
+        """Fallback narration when no LLM is available (longer than one-liner for better video length)."""
+        t = topic.strip().title()
+        return (
+            f"Today we're learning about {t}. "
+            "This topic is important and useful. "
+            "Let's look at the main ideas together. "
+            "You'll find this interesting and easy to remember."
+        )
+
     def _create_lesson_prompt(self, topic: str, age_group: int, user_name: str = "", 
                              is_continuation: bool = False, previous_content: str = None,
                              for_audio: bool = False, language: str = "en"):
         if age_group <= 8:
-            style_guide = "Use very simple words, short sentences, and examples with toys, animals, or games"
+            style_guide = "Use very simple words, short sentences, and examples with toys, animals, or games. Use lots of relevant emojis (e.g. 🌱🔬✨) throughout to make it fun!"
         elif age_group <= 12:
-            style_guide = "Use simple language, clear examples, and everyday situations like school or home"
+            style_guide = "Use simple language, clear examples, and everyday situations like school or home. Include several relevant emojis throughout the lesson (e.g. 🌱📚💡) to keep it engaging!"
         elif age_group <= 16:
-            style_guide = "Use clear explanations with relatable examples and real-world situations"
+            style_guide = "Use clear explanations with relatable examples and real-world situations. Include some relevant emojis (e.g. 🌿🔬✨) to keep it engaging."
         else:
-            style_guide = "Use detailed explanations with comprehensive examples and professional contexts"
+            style_guide = "Use detailed explanations with comprehensive examples and professional contexts. You may add a few relevant emojis for tone."
         
         # Language instruction
         lang_instruction = ""
@@ -324,12 +493,13 @@ CRITICAL FORMATTING RULES:
 - Do NOT include "Try This at Home" or similar activity sections unless they directly relate to the topic
 - Focus on clear explanations and examples, not generic activities
 - Do not add unnecessary formatting or redundant bold markers
+- Include a few relevant emojis to keep the tone engaging and match the first part of the lesson
 
 Make sure the explanation is accurate, easy to follow, and age-appropriate.
 
 IMPORTANT: 
 - Make it conversational and connected to what the student just learned.
-- Keep the response under 1400 characters to ensure WhatsApp delivery."""
+- End with a complete sentence, then optional emojis. Keep the response under 1400 characters to ensure WhatsApp delivery."""
             if for_audio:
                 system_prompt += """
 
@@ -368,12 +538,13 @@ CRITICAL FORMATTING RULES:
 - Do NOT include "Try This at Home" or similar activity sections unless they directly relate to the topic
 - Focus on clear explanations and examples, not generic activities
 - Do not add unnecessary formatting or redundant bold markers
+- EMOJIS (required): Put 1–2 emojis in the very first line (e.g. right after the opening sentence). Put at least one emoji in the middle (e.g. after "How it works" or a key point) and one in the fun example. Use 4–8 emojis total, scattered throughout. Do NOT put all emojis only at the end—if the message is shortened, the end may be cut off. Examples: 🌱🔬✨📚💡🌞🌿
 
 Make sure the explanation is accurate, easy to follow, and age-appropriate.
 
 CRITICAL COMPLETENESS REQUIREMENTS:
 - ALWAYS complete your response with proper ending punctuation (. ! ?) BEFORE any emojis
-- If you use emojis at the end, place them AFTER the final punctuation mark
+- If you use emojis, place them AFTER the final punctuation mark
 - NEVER cut off mid-sentence, mid-list, or mid-thought
 - If listing items, complete the entire list before ending
 - Ensure the response is a complete, coherent lesson that can stand alone
@@ -382,7 +553,7 @@ CRITICAL COMPLETENESS REQUIREMENTS:
 IMPORTANT: 
 - Focus only on teaching the topic. Do not introduce yourself or respond to greetings. Start directly with the lesson content.
 - Keep the response under 1400 characters to ensure WhatsApp delivery.
-- ALWAYS provide a complete, finished response."""
+- ALWAYS provide a complete, finished response. Include several emojis as specified above."""
             if for_audio:
                 system_prompt += """
 
@@ -521,6 +692,12 @@ def generate_lesson(topic: str, age_group: int, user_name: str = "",
                                       is_continuation=is_continuation, 
                                       previous_content=previous_content,
                                       for_audio=for_audio, language=language)
+
+
+def generate_video_narration(topic: str, age_group: int = 10, language: str = "en") -> str:
+    """Generate a short narration script for video TTS (4-6 sentences). English only."""
+    return llm_service.generate_video_narration(topic, age_group, language)
+
 
 def initialize_llm():
     llm_service.initialize()

@@ -10,8 +10,8 @@ alembic==1.12.1
 # Twilio for WhatsApp integration
 twilio==8.10.3
 
-# AI/ML dependencies
-numpy<2.0.0,>=1.24.0
+# AI/ML dependencies (numpy 2.0.x–2.2.x: satisfies numba<2.3, opencv-headless>=2, kokoro-onnx>=2.0.2)
+numpy>=2.0.2,<2.3.0
 transformers>=4.46.0
 torch==2.4.1
 torchvision==0.19.1
@@ -51,5 +51,17 @@ torchaudio>=2.4.1  # Already included above, needed for Whisper
 # Image generation (resize/compress for WhatsApp)
 Pillow>=10.0.0
 
-# Optional: For better performance with transformers
+# Optional: ModelScope text-to-video (primary video backend; needs GPU for good performance)
+# Install: pip install modelscope  then set USE_MODELSCOPE_VIDEO=1
+# The following are required/optional by modelscope and its text-to-video pipeline:
+addict>=2.4.0
+datasets>=2.0.0,<2.16.0  # ModelScope needs ALL_ALLOWED_EXTENSIONS (removed in datasets 2.16+)
+oss2>=2.18.0
+filelock>=3.0.0
+tqdm>=4.60.0
+opencv-python-headless>=4.5.0
+open-clip-torch>=2.20.0
+pytorch-lightning>=2.0.0
+einops>=0.6.0
+scipy>=1.9.0
 # optimum[onnxruntime]==1.16.0  # Uncomment for ONNX acceleration

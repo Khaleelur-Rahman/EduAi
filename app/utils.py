@@ -161,6 +161,7 @@ def get_help_message(age_group: int, language: str = "en") -> str:
 ➡️ `/next` - Continue to next part of lesson
 🧩 `/quiz` - Take a quiz on your current lesson
 🎤 `/audio <topic>` - Get an audio lesson (e.g. `/audio cells`)
+📹 `/video <topic>` - Get a short educational video (e.g. `/video cells`)
 🌐 `/language <code>` - Change language (e.g. `/language es` for Spanish)
 📊 `/progress` - See your completed lessons and quiz scores
 ❓ `/help` - Show this help message
@@ -508,6 +509,7 @@ def get_loading_message(command_type: str, topic: str = None, language: str = "e
             "next": "⏳ Loading next part...",
             "quiz": "⏳ Loading quiz...",
             "progress": "⏳ Loading your progress...",
+            "video": f"⏳ Creating your video on {topic.title()}…" if topic else "⏳ Creating your video…",
             "default": "⏳ LOADING...",
         },
         "es": {
@@ -515,6 +517,7 @@ def get_loading_message(command_type: str, topic: str = None, language: str = "e
             "next": "⏳ Cargando siguiente parte...",
             "quiz": "⏳ Cargando cuestionario...",
             "progress": "⏳ Cargando tu progreso...",
+            "video": f"⏳ Creando tu video sobre {topic.title()}…" if topic else "⏳ Creando tu video…",
             "default": "⏳ CARGANDO...",
         },
         "fr": {
@@ -522,6 +525,7 @@ def get_loading_message(command_type: str, topic: str = None, language: str = "e
             "next": "⏳ Chargement de la partie suivante...",
             "quiz": "⏳ Chargement du quiz...",
             "progress": "⏳ Chargement de votre progression...",
+            "video": f"⏳ Création de ta vidéo sur {topic.title()}…" if topic else "⏳ Création de ta vidéo…",
             "default": "⏳ CHARGEMENT...",
         },
         "ms": {
@@ -529,6 +533,7 @@ def get_loading_message(command_type: str, topic: str = None, language: str = "e
             "next": "⏳ Memuatkan bahagian seterusnya...",
             "quiz": "⏳ Memuatkan kuiz...",
             "progress": "⏳ Memuatkan kemajuan anda...",
+            "video": f"⏳ Mencipta video anda tentang {topic.title()}…" if topic else "⏳ Mencipta video…",
             "default": "⏳ MEMUATKAN...",
         },
         "zh": {
@@ -536,6 +541,7 @@ def get_loading_message(command_type: str, topic: str = None, language: str = "e
             "next": "⏳ 加载下一部分...",
             "quiz": "⏳ 加载测验...",
             "progress": "⏳ 加载你的进度...",
+            "video": f"⏳ 正在生成关于 {topic.title()} 的视频…" if topic else "⏳ 正在生成视频…",
             "default": "⏳ 加载中...",
         },
         "hi": {
@@ -543,6 +549,7 @@ def get_loading_message(command_type: str, topic: str = None, language: str = "e
             "next": "⏳ अगला भाग लोड हो रहा है...",
             "quiz": "⏳ क्विज़ लोड हो रहा है...",
             "progress": "⏳ आपकी प्रगति लोड हो रही है...",
+            "video": f"⏳ {topic.title()} पर आपकी वीडियो बन रही है…" if topic else "⏳ वीडियो बन रही है…",
             "default": "⏳ लोड हो रहा है...",
         },
     }

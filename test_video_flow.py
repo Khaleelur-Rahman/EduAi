@@ -1,5 +1,5 @@
 """
-Tests for video generation: short-video-maker only (Cerebras narration + TTS + Pexels + Remotion).
+Tests for video generation: hybrid pipeline (Cerebras + Cloudflare AI + edge-tts + ffmpeg).
 """
 import os
 import sys
@@ -8,28 +8,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 
-def test_build_short_video_script():
-    """Fallback script includes topic."""
-    from app.video import _build_short_video_script
-
-    script = _build_short_video_script("cells")
-    assert "cells" in script.lower()
-    assert "learning" in script.lower()
-    print("  ✓ Fallback script built from topic")
-
-
-def test_build_search_terms():
-    """Search terms include topic and generic terms."""
-    from app.video import _build_search_terms
-
-    terms = _build_search_terms("photosynthesis")
-    assert "photosynthesis" in terms
-    assert "science" in terms
-    print("  ✓ Search terms built from topic")
-
-
 def test_video_service_interface():
-    """VideoService has generate and respects SHORT_VIDEO_MAKER_URL."""
+    """VideoService has generate and respects enabled state."""
     from app.video import video_service, generate_lesson_video
 
     assert hasattr(video_service, "generate")
@@ -37,9 +17,9 @@ def test_video_service_interface():
     if not video_service.enabled:
         out = video_service.generate("cells")
         assert out is None
-        print("  ✓ VideoService returns None when SHORT_VIDEO_MAKER_URL not set")
+        print("  ✓ VideoService returns None when disabled (missing ffmpeg or image provider)")
     else:
-        print("  ✓ VideoService enabled (SHORT_VIDEO_MAKER_URL set)")
+        print("  ✓ VideoService enabled")
 
 
 def test_process_whatsapp_message_request_video_shape():
@@ -71,7 +51,7 @@ def test_process_whatsapp_message_request_video_shape():
             assert r.get("video_content_type") == "video/mp4"
             print(f"  ✓ /video cells returned text + video ({len(r['video_bytes'])} bytes)")
         else:
-            print("  ✓ /video cells returned text (video disabled or short-video-maker failed)")
+            print("  ✓ /video cells returned text (video disabled or generation failed)")
     finally:
         db.close()
 
@@ -98,8 +78,6 @@ def test_video_store_and_serve():
 
 if __name__ == "__main__":
     print("Video flow tests\n")
-    test_build_short_video_script()
-    test_build_search_terms()
     test_video_service_interface()
     test_process_whatsapp_message_request_video_shape()
     test_video_store_and_serve()

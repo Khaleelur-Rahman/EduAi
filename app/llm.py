@@ -9,6 +9,8 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+MIN_IMAGE_PROMPTS = 2
+
 class LLMService:
     
     def __init__(self):
@@ -274,61 +276,146 @@ Continue the lesson naturally, referencing what was just covered and building on
             logger.info(f"Falling back to predefined lesson for topic: {topic}")
             return self._get_fallback_lesson(topic, age_group)
 
-    def generate_video_narration(self, topic: str, age_group: int = 10, language: str = "en") -> str:
+    def generate_video_script(self, topic: str, age_group: int = 10, num_images: int = 4) -> dict:
         """
-        Generate a short narration script (4-6 sentences) for video TTS.
-        Used by short-video-maker; English only. Returns plain text for voiceover.
-        Tries Cerebras first, then OpenAI if available, then static fallback.
+        Generate a narration script and matching image prompts for the hybrid video pipeline.
+        Uses two sequential LLM calls (plain text) since the thinking model often returns
+        empty for JSON-structured requests.  Retries narration once on empty.
         """
-        if language and language.lower() != "en":
-            return self._video_narration_fallback(topic)
-        t = topic.strip().title()
+        t = topic.strip()
+
+        narration = ""
+        for attempt in range(3):
+            narration = self._generate_narration_text(t, age_group)
+            word_count = len(narration.split()) if narration else 0
+            if narration and word_count >= 40:
+                break
+            logger.info("Narration attempt %d for '%s': %d words, retrying", attempt + 1, t, word_count)
+        if not narration or len(narration.split()) < 40:
+            logger.info("Video narration for '%s': using fallback", topic)
+            return self._video_script_fallback(topic, num_images)
+
+        image_prompts = self._generate_image_prompts(t, num_images)
+        if len(image_prompts) < MIN_IMAGE_PROMPTS:
+            logger.info("Only %d image prompts for '%s', using defaults", len(image_prompts), t)
+            image_prompts = self._default_image_prompts(t, num_images)
+
+        logger.info("Video script for '%s': narration %d chars, %d image prompts",
+                     topic, len(narration), len(image_prompts))
+        return {"narration": narration, "image_prompts": image_prompts}
+
+    def _generate_narration_text(self, topic_title: str, age_group: int) -> str:
+        """Generate plain-text narration via Cerebras streaming."""
+        if not (self._initialized or self._try_initialize()):
+            return ""
         system = (
-            "You write short voiceover scripts for educational videos. Output ONLY the narration text, no titles or labels. "
+            "You write short voiceover scripts for educational videos. "
+            "Output ONLY the narration text, no titles or labels. "
             "Rules: Exactly 4 to 6 short sentences. Include 2 to 3 concrete facts and one simple example. "
-            "Length: about 20 to 30 seconds when read aloud (roughly 50–80 words). "
+            "Length: about 20 to 30 seconds when read aloud (roughly 60-80 words). "
             "Plain prose, written to be read aloud. No bullet points, no markdown. "
             "Do not include <think>, reasoning, or any text that is not the spoken narration."
         )
         user = (
-            f'Write the voiceover for a short educational video about "{t}". '
+            f'Write the voiceover for a short educational video about "{topic_title}". '
             f"Audience: {age_group} years old. "
-            "Include 2–3 concrete facts and one simple example. "
+            "Include 2-3 concrete facts and one simple example. "
             "Output only the narration, nothing else."
         )
-        # Try Cerebras first (non-stream then stream)
-        cerebras_narration = ""
-        if self._initialized or self._try_initialize():
-            try:
-                cerebras_narration = self._video_narration_via_cerebras(system, user)
-                if cerebras_narration and len(cerebras_narration) > 50:
-                    # Keep to ~80 words for 20–30s TTS; stream may return more (we use lesson-style token limit)
-                    words = cerebras_narration.split()
-                    if len(words) > 100:
-                        cerebras_narration = " ".join(words[:100]).rstrip()
-                        if not cerebras_narration.endswith((".", "!", "?")):
-                            cerebras_narration += "."
-                    logger.info("Video narration for '%s': using Cerebras (%s chars)", topic, len(cerebras_narration))
-                    return cerebras_narration
-                if cerebras_narration:
-                    logger.warning(
-                        "Video narration (Cerebras) for '%s' too short (%s chars), trying OpenAI then fallback",
-                        topic,
-                        len(cerebras_narration),
-                    )
-            except Exception as e:
-                logger.warning("Video narration (Cerebras) failed for '%s': %s", topic, e)
-        # Fallback: OpenAI if API key is set
-        narration = self._video_narration_via_openai(topic, age_group, system, user)
-        if narration and len(narration) > 50:
-            logger.info("Video narration for '%s': using OpenAI fallback (%s chars)", topic, len(narration))
-            return narration
-        logger.info(
-            "Video narration for '%s': using static fallback (Cerebras len=%s, OpenAI unavailable or short)",
-            topic,
-            len(cerebras_narration),
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                max_completion_tokens=self.max_tokens,
+                temperature=0.7,
+                top_p=0.8,
+                stream=True,
+            )
+            raw = ""
+            for chunk in response:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    raw += chunk.choices[0].delta.content
+            text = re.sub(r'<think>.*?</think>', '', raw, flags=re.DOTALL | re.IGNORECASE).strip()
+            if text and len(text) > 30:
+                words = text.split()
+                if len(words) > 100:
+                    text = " ".join(words[:100]).rstrip()
+                    if not text.endswith((".", "!", "?")):
+                        text += "."
+                return text
+        except Exception as e:
+            logger.warning("Narration generation failed for '%s': %s", topic_title, e)
+        return ""
+
+    def _generate_image_prompts(self, topic_title: str, num_images: int) -> list:
+        """Generate image prompts via Cerebras streaming, one per line."""
+        if not (self._initialized or self._try_initialize()):
+            return []
+        system = (
+            "You write image generation prompts for Stable Diffusion XL. "
+            f"Output exactly {num_images} prompts, one per line, numbered 1. 2. 3. 4. "
+            "Each prompt MUST describe a COMPLETELY DIFFERENT scene, subject, or perspective. "
+            "For example: 1=diagram/overview, 2=close-up of a key part, 3=real-world photo, 4=comparison/before-after. "
+            "Each prompt: 20-40 words, concrete visual scene, style keywords like 'colorful, detailed, clean'. "
+            "CRITICAL: Do NOT include any text, words, labels, letters, or writing in the image. "
+            "No markdown, no explanations, just the numbered prompts."
         )
-        return self._video_narration_fallback(topic)
+        user = (
+            f'Write {num_images} DIVERSE image prompts for an educational video about "{topic_title}". '
+            "Each must show a completely different scene or angle -- no two should look similar. "
+            "Do not put any text, words, labels, or writing in the images."
+        )
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                max_completion_tokens=self.max_tokens,
+                temperature=0.7,
+                top_p=0.8,
+                stream=True,
+            )
+            raw = ""
+            for chunk in response:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    raw += chunk.choices[0].delta.content
+            text = re.sub(r'<think>.*?</think>', '', raw, flags=re.DOTALL | re.IGNORECASE).strip()
+            prompts = []
+            for line in text.split("\n"):
+                line = re.sub(r'^\d+[\.\)]\s*', '', line.strip())
+                if len(line) > 15:
+                    prompts.append(line)
+            return prompts[:num_images]
+        except Exception as e:
+            logger.warning("Image prompt generation failed for '%s': %s", topic_title, e)
+        return []
+
+    def _default_image_prompts(self, topic_title: str, num_images: int = 4) -> list:
+        """Deterministic diverse image prompts when LLM fails."""
+        return [
+            f"Wide overview diagram of {topic_title}, colorful educational illustration, clean white background, detailed",
+            f"Close-up microscopic or detailed view of {topic_title}, scientific photography style, vivid colors, sharp focus",
+            f"Real-world outdoor photograph showing {topic_title} in nature, photorealistic, golden hour lighting",
+            f"Animated cartoon style illustration explaining {topic_title}, friendly characters, bright pastel colors, simple shapes",
+        ][:num_images]
+
+    def _video_script_fallback(self, topic: str, num_images: int = 4) -> dict:
+        """Static fallback when LLM is unavailable."""
+        t = topic.strip()
+        narration = (
+            f"Today we're going to learn about {t}. "
+            f"This is a fascinating topic that scientists have studied for many years. "
+            f"Understanding {t} helps us make sense of the world around us. "
+            "There are several key ideas we need to explore to get the full picture. "
+            "Each one builds on the last, so pay close attention. "
+            "By the end of this video, you'll have a solid understanding of how it all works."
+        )
+        return {"narration": narration, "image_prompts": self._default_image_prompts(t, num_images)}
 
     def _try_initialize(self) -> bool:
         """Initialize Cerebras if possible; return True if client is ready."""
@@ -337,119 +424,6 @@ Continue the lesson naturally, referencing what was just covered and building on
             return self._initialized and self.client is not None
         except Exception:
             return False
-
-    def _video_narration_via_cerebras(self, system: str, user: str) -> str:
-        """Generate narration using Cerebras; returns stripped text or empty string."""
-        # Use streaming first (same as lesson): this model returns content for stream=True
-        # but often 0 chars for stream=False. Use same token limit as lesson so API returns content.
-        raw = self._video_narration_cerebras_stream(system, user)
-        if not raw or len(raw.strip()) < 30:
-            raw = self._video_narration_cerebras_nonstream(system, user)
-        if not raw or len(raw.strip()) < 30:
-            logger.debug(
-                "Video narration Cerebras: both stream and non-stream returned short/empty",
-            )
-        return self._video_narration_parse_raw(raw)
-
-    def _video_narration_cerebras_stream(self, system: str, user: str) -> str:
-        """Get raw narration text from Cerebras streaming API. Use same token limit as lesson so API returns content."""
-        response = self.client.chat.completions.create(
-            model=self.model_name,
-            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-            max_completion_tokens=self.max_tokens,
-            temperature=self.temperature,
-            top_p=self.top_p,
-            stream=True,
-        )
-        raw = ""
-        for chunk in response:
-            if chunk.choices and chunk.choices[0].delta.content:
-                raw += chunk.choices[0].delta.content
-        return raw.strip()
-
-    def _video_narration_cerebras_nonstream(self, system: str, user: str) -> str:
-        """Get raw narration from Cerebras non-streaming API."""
-        try:
-            resp = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-                max_completion_tokens=200,
-                temperature=0.6,
-                top_p=0.8,
-                stream=False,
-            )
-            if not getattr(resp, "choices", None) or len(resp.choices) == 0:
-                logger.warning("Cerebras non-stream: no choices in response")
-                return ""
-            choice = resp.choices[0]
-            message = getattr(choice, "message", None)
-            if message is None:
-                logger.warning("Cerebras non-stream: choices[0] has no message")
-                return ""
-            content = getattr(message, "content", None)
-            if content is None and isinstance(message, dict):
-                content = message.get("content")
-            text = (content or "").strip()
-            logger.info("Cerebras non-stream video narration: %s chars", len(text))
-            return text
-        except Exception as e:
-            logger.warning("Cerebras non-stream video narration failed: %s", e)
-            return ""
-
-    def _video_narration_parse_raw(self, raw: str) -> str:
-        """Strip <think> tags and prefer outer text; use <think> inner text if outer is too short."""
-        if not raw or not raw.strip():
-            return ""
-        raw = raw.strip()
-        # Prefer text outside <think> (the actual narration)
-        narration = re.sub(r'<think>.*?</think>', '', raw, flags=re.DOTALL | re.IGNORECASE)
-        if narration.strip().lower().startswith("<think>"):
-            narration = re.sub(r"^<think>.*", "", narration, flags=re.DOTALL | re.IGNORECASE)
-        narration = narration.strip()
-        # If model put the answer inside <think>, use that (many reasoning models do)
-        if len(narration) <= 50 and "<think>" in raw.lower():
-            match = re.search(r'<think>\s*(.*?)\s*</think>', raw, re.DOTALL | re.IGNORECASE)
-            if match and len(match.group(1).strip()) > 50:
-                narration = match.group(1).strip()
-        # If parsing removed everything but we had content, use raw (minimal strip)
-        if not narration and len(raw) > 50:
-            narration = re.sub(r'<think>\s*', '', raw, flags=re.IGNORECASE)
-            narration = re.sub(r'\s*</think>', '', narration, flags=re.IGNORECASE)
-            narration = narration.strip()
-        return narration
-
-    def _video_narration_via_openai(self, topic: str, age_group: int, system: str, user: str) -> str:
-        """Fallback: generate narration via OpenAI if OPENAI_API_KEY is set. Returns empty string if unavailable."""
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            return ""
-        try:
-            from openai import OpenAI
-            client = OpenAI(api_key=api_key)
-            resp = client.chat.completions.create(
-                model=os.getenv("OPENAI_VIDEO_NARRATION_MODEL", "gpt-4o-mini"),
-                messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-                max_tokens=200,
-                temperature=0.6,
-            )
-            content = (resp.choices[0].message.content or "").strip()
-            content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL | re.IGNORECASE)
-            if content.strip().lower().startswith("<think>"):
-                content = re.sub(r"^<think>.*", "", content, flags=re.DOTALL | re.IGNORECASE)
-            return content.strip()
-        except Exception as e:
-            logger.warning("Video narration (OpenAI fallback) failed for '%s': %s", topic, e)
-            return ""
-
-    def _video_narration_fallback(self, topic: str) -> str:
-        """Fallback narration when no LLM is available (longer than one-liner for better video length)."""
-        t = topic.strip().title()
-        return (
-            f"Today we're learning about {t}. "
-            "This topic is important and useful. "
-            "Let's look at the main ideas together. "
-            "You'll find this interesting and easy to remember."
-        )
 
     def _create_lesson_prompt(self, topic: str, age_group: int, user_name: str = "", 
                              is_continuation: bool = False, previous_content: str = None,
@@ -694,9 +668,9 @@ def generate_lesson(topic: str, age_group: int, user_name: str = "",
                                       for_audio=for_audio, language=language)
 
 
-def generate_video_narration(topic: str, age_group: int = 10, language: str = "en") -> str:
-    """Generate a short narration script for video TTS (4-6 sentences). English only."""
-    return llm_service.generate_video_narration(topic, age_group, language)
+def generate_video_script(topic: str, age_group: int = 10, num_images: int = 4) -> dict:
+    """Generate narration + image prompts for the hybrid video pipeline."""
+    return llm_service.generate_video_script(topic, age_group, num_images)
 
 
 def initialize_llm():

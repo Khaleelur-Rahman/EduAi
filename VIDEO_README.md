@@ -1,36 +1,45 @@
 # Video Generation
 
-Educational short videos for `/video <topic>` use **short-video-maker** only: Cerebras generates the narration script, then TTS + Pexels stock footage + Remotion produce the video.
+Educational short videos for `/video <topic>`: **Cerebras narration + Cloudflare AI images + edge-tts + ffmpeg**.
 
-## Flow
+## How It Works
 
-1. User sends `/video <topic>` (e.g. `/video cells`).
-2. **Cerebras** generates a short narration (4–6 sentences, 2–3 facts + one example) via the same streaming API as `/lesson`.
-3. **short-video-maker** (Docker) turns that script into a video: TTS voiceover + Pexels clips + Remotion.
-4. Video is compressed if over 16 MB (Twilio limit) and sent via WhatsApp.
+1. User sends `/video <topic>` (e.g. `/video photosynthesis`).
+2. **Cerebras LLM** generates a narration script and 4 unique image prompts for the topic.
+3. In parallel:
+   - **Cloudflare Workers AI** generates images (SDXL primary, FLUX fallback). HuggingFace Inference API is a secondary fallback.
+   - **edge-tts** (Microsoft Edge TTS) synthesizes the narration to audio.
+4. Narration is split into sentences with proportional timing. Sentences are grouped sequentially across images (one group per image, each image used exactly once).
+5. **ffmpeg** creates a static clip per sentence (image + subtitle overlay) and concatenates them with the audio track.
+6. Video is compressed if over 16 MB (Twilio limit) and sent via WhatsApp.
 
 ## Setup
 
-1. **Cerebras** (for narration): set `CEREBRAS_API_KEY` in `.env`. Same as lessons.
-2. **short-video-maker** (Docker):
+### Required
 
-   ```bash
-   docker run -it --rm -p 3123:3123 \
-     -e PEXELS_API_KEY=your_pexels_api_key \
-     gyoridavid/short-video-maker:latest-tiny
-   ```
+- **Cerebras** (narration + image prompts): set `CEREBRAS_API_KEY` in `.env`.
+- **Cloudflare Workers AI** (image generation, 10k free requests/day):
+  ```
+  CLOUDFLARE_ACCOUNT_ID=your_account_id
+  CLOUDFLARE_API_TOKEN=your_api_token
+  ```
+  Get these from the [Cloudflare dashboard](https://dash.cloudflare.com/) under **AI > Workers AI**.
+- **ffmpeg**: required for video assembly. Install with `brew install ffmpeg` (macOS) or `apt install ffmpeg` (Linux).
 
-   In `.env`:
+### Optional
 
-   ```bash
-   SHORT_VIDEO_MAKER_URL=http://localhost:3123
-   ```
+- **HuggingFace** (fallback image generation): set `HF_TOKEN` in `.env`. Free tier is limited (~1000 requests/month).
 
-   Optional: `SHORT_VIDEO_MAKER_POLL_INTERVAL=10`, `SHORT_VIDEO_MAKER_TIMEOUT=300`.
+## Output
 
-3. **Compression (optional):** If videos exceed 16 MB, install `ffmpeg` so the app can re-encode them (e.g. `brew install ffmpeg`).
+- **Resolution:** 1280x720 (720p)
+- **Duration:** matches narration length (~20-30s typical)
+- **Format:** MP4 (H.264 + AAC)
+- **Subtitles:** burned in, synced per-sentence
+- **Images:** 3-4 per video, each shown for a group of sentences
 
 ## Limitations
 
-- **English only.**
-- **Twilio:** Video must be ≤16 MB (compression runs when over limit if ffmpeg is available).
+- English only.
+- Twilio: video must be ≤16 MB (auto-compressed if over limit).
+- AI-generated images occasionally contain visual artifacts; negative prompts are used to suppress unwanted text in images.

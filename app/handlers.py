@@ -792,9 +792,8 @@ def process_whatsapp_message_request_audio(db: Session, phone_number: str, messa
         logger.info("Skipping TTS for error response; sending as text")
         return result
     try:
-        voice = tts_service.get_voice_for_age(user.age if user.age else 10, user.language)
         age = user.age if user.age else 10
-        segments = synthesize_speech_chunked(response_text, voice, age, language=user.language)
+        segments = synthesize_speech_chunked(response_text, age_group=age, language=user.language)
         if segments:
             result["audio_segments"] = segments
             if len(segments) == 1:
@@ -833,15 +832,8 @@ def process_whatsapp_message_request_video(db: Session, phone_number: str, messa
         return {"text": "Please finish onboarding first (reply with your name and age), then try /video <topic> 📹"}
 
     result = {"text": f"📹 Here’s your short video on {clean_topic_title(topic)}!"}
-    script = None
-    if (user.language or "en").lower() == "en":
-        try:
-            from .llm import generate_video_narration
-            script = generate_video_narration(topic, age_group=user.age or 10, language=user.language or "en")
-        except Exception as e:
-            logger.warning(f"Video narration LLM failed for '%s', using fallback script: %s", topic, e)
     try:
-        out = generate_lesson_video(topic, language=user.language or "en", script_override=script)
+        out = generate_lesson_video(topic, language=user.language or "en")
         if out:
             video_bytes, content_type = out
             result["video_bytes"] = video_bytes
@@ -1050,10 +1042,9 @@ async def process_whatsapp_audio(
         # Fallback: result['text'] is always set above — when TTS fails, caller should send text instead.
         if return_audio and user.is_onboarded:
             try:
-                voice = tts_service.get_voice_for_age(user.age if user.age else 10, user.language)
                 age = user.age if user.age else 10
-                logger.info(f"Generating chunked audio response (voice: {voice}, age: {age}, language: {user.language})...")
-                segments = synthesize_speech_chunked(response_text, voice, age, language=user.language)
+                logger.info(f"Generating chunked audio response (age: {age}, language: {user.language})...")
+                segments = synthesize_speech_chunked(response_text, age_group=age, language=user.language)
                 if segments:
                     result['audio_segments'] = segments
                     if len(segments) == 1:

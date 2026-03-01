@@ -1,85 +1,65 @@
 """
-Video generation: short-video-maker only (Cerebras narration + TTS + Pexels + Remotion).
+Video generation: hybrid pipeline (LLM + AI images + TTS + ffmpeg).
 """
 import os
+import re
 import logging
 import subprocess
 import tempfile
-import time
-import requests
+import shutil
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional, Tuple, List
 
 logger = logging.getLogger(__name__)
 
-# Twilio WhatsApp video limit: 16 MB
-MAX_VIDEO_SIZE_BYTES = 16 * 1024 * 1024
-TARGET_VIDEO_SIZE_BYTES = int(MAX_VIDEO_SIZE_BYTES * 0.92)  # ~15 MB
+MAX_VIDEO_SIZE_BYTES = 16 * 1024 * 1024  # Twilio WhatsApp limit
+TARGET_VIDEO_SIZE_BYTES = int(MAX_VIDEO_SIZE_BYTES * 0.92)
+
+VIDEO_FPS = 25
+VIDEO_WIDTH = 1280
+VIDEO_HEIGHT = 720
+MIN_IMAGES_REQUIRED = 2
 
 
 def _compress_video_to_fit(video_bytes: bytes, max_bytes: int = TARGET_VIDEO_SIZE_BYTES) -> Optional[bytes]:
-    """
-    Re-encode video with ffmpeg to fit under max_bytes. Keeps audio.
-    Returns compressed bytes or None if ffmpeg unavailable / fails.
-    """
+    """Re-encode video with ffmpeg to fit under max_bytes."""
     with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as fin:
         fin.write(video_bytes)
         input_path = fin.name
     try:
         try:
             out = subprocess.run(
-                [
-                    "ffprobe",
-                    "-v", "error",
-                    "-show_entries", "format=duration",
-                    "-of", "default=noprint_wrappers=1:nokey=1",
-                    input_path,
-                ],
-                capture_output=True,
-                text=True,
-                timeout=10,
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+                capture_output=True, text=True, timeout=10,
             )
-            if out.returncode != 0 or not out.stdout or not out.stdout.strip():
-                logger.warning("ffprobe could not get duration: %s", out.stderr or out.stdout)
-                duration_sec = 30.0
-            else:
-                duration_sec = float(out.stdout.strip())
-        except (FileNotFoundError, subprocess.TimeoutExpired, ValueError) as e:
-            logger.warning("ffprobe failed for compression: %s", e)
+            duration_sec = float(out.stdout.strip()) if out.returncode == 0 and out.stdout.strip() else 30.0
+        except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
             duration_sec = 30.0
         if duration_sec <= 0:
             duration_sec = 30.0
         target_bits = max_bytes * 8
         audio_bits = 128_000 * duration_sec
         video_bits = max(0, target_bits - audio_bits)
-        video_k = int(video_bits / duration_sec / 1000)
-        video_k = max(200, min(4000, video_k))
+        video_k = max(200, min(4000, int(video_bits / duration_sec / 1000)))
         out_path = input_path + ".out.mp4"
         try:
             subprocess.run(
-                [
-                    "ffmpeg", "-y", "-i", input_path,
-                    "-c:v", "libx264", "-b:v", f"{video_k}k", "-maxrate", f"{min(4500, video_k + 500)}k",
-                    "-bufsize", "1000k", "-c:a", "aac", "-b:a", "96k",
-                    "-movflags", "+faststart", out_path,
-                ],
-                capture_output=True,
-                timeout=120,
-                check=True,
+                ["ffmpeg", "-y", "-i", input_path,
+                 "-c:v", "libx264", "-b:v", f"{video_k}k",
+                 "-maxrate", f"{min(4500, video_k + 500)}k",
+                 "-bufsize", "1000k", "-c:a", "aac", "-b:a", "96k",
+                 "-movflags", "+faststart", out_path],
+                capture_output=True, timeout=120, check=True,
             )
             with open(out_path, "rb") as f:
                 result = f.read()
             if len(result) <= max_bytes:
                 return result
-            logger.warning("Compressed video still too large: %s (target %s)", len(result), max_bytes)
             return result if len(result) <= MAX_VIDEO_SIZE_BYTES else None
         except FileNotFoundError:
-            logger.warning("ffmpeg not found; cannot compress oversized video")
             return None
-        except subprocess.CalledProcessError as e:
-            logger.warning("ffmpeg compression failed: %s", e.stderr or e)
-            return None
-        except subprocess.TimeoutExpired:
-            logger.warning("ffmpeg compression timed out")
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             return None
         finally:
             if os.path.exists(out_path):
@@ -96,45 +76,231 @@ def _compress_video_to_fit(video_bytes: bytes, max_bytes: int = TARGET_VIDEO_SIZ
 
 
 def _ensure_video_under_limit(video_bytes: bytes) -> Optional[bytes]:
-    """If video is over Twilio limit, compress it. Return bytes to use (under limit) or None on failure."""
     if len(video_bytes) <= MAX_VIDEO_SIZE_BYTES:
         return video_bytes
-    logger.info("Compressing video from %s to under %s bytes", len(video_bytes), MAX_VIDEO_SIZE_BYTES)
     compressed = _compress_video_to_fit(video_bytes)
     if compressed and len(compressed) <= MAX_VIDEO_SIZE_BYTES:
-        logger.info("Compressed video to %s bytes", len(compressed))
         return compressed
-    if compressed:
-        logger.warning("Compressed video still over limit: %s", len(compressed))
     return None
 
 
-def _build_short_video_script(topic: str) -> str:
-    """Fallback narration when no LLM script is provided (one scene)."""
-    t = topic.strip().title()
-    return f"Today we're learning about {t}. This is an important concept to understand."
+def _get_audio_duration(audio_path: str) -> float:
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", audio_path],
+            capture_output=True, text=True, timeout=10,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            return float(out.stdout.strip())
+    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
+        pass
+    return 25.0
 
 
-def _build_search_terms(topic: str) -> List[str]:
-    """Search terms for Pexels footage in short-video-maker."""
-    t = topic.strip().lower()
-    return [t, "science", "nature"]
+# ---------- Subtitle rendering via PIL ----------
 
+def _render_subtitle_image(text: str, width: int, height: int, out_path: str) -> bool:
+    """Render one subtitle sentence as a transparent PNG overlay."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError:
+        return False
+
+    img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    font_size = max(22, height // 22)
+    try:
+        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
+    except (OSError, IOError):
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
+        except (OSError, IOError):
+            font = ImageFont.load_default()
+
+    max_text_w = int(width * 0.88)
+    words = text.split()
+    lines: List[str] = []
+    current = ""
+    for word in words:
+        test = f"{current} {word}".strip()
+        bbox = draw.textbbox((0, 0), test, font=font)
+        if bbox[2] - bbox[0] > max_text_w and current:
+            lines.append(current)
+            current = word
+        else:
+            current = test
+    if current:
+        lines.append(current)
+    if not lines:
+        return False
+
+    line_h = font_size + 8
+    block_h = line_h * len(lines) + 16
+    y_start = height - block_h - 40
+
+    pad = 14
+    draw.rectangle(
+        [(width * 0.04, y_start - pad), (width * 0.96, y_start + block_h + pad)],
+        fill=(0, 0, 0, 170),
+    )
+
+    for i, line in enumerate(lines):
+        bbox = draw.textbbox((0, 0), line, font=font)
+        tw = bbox[2] - bbox[0]
+        x = (width - tw) // 2
+        y = y_start + i * line_h
+        draw.text((x + 2, y + 2), line, font=font, fill=(0, 0, 0, 220))
+        draw.text((x, y), line, font=font, fill=(255, 255, 255, 255))
+
+    img.save(out_path, "PNG")
+    return True
+
+
+# ---------- Timed sentence splitting ----------
+
+def _time_sentences(narration: str, audio_duration: float) -> List[dict]:
+    """
+    Split narration into individual sentences with proportional timing.
+    Returns [{"text": str, "start": float, "end": float}, ...].
+    """
+    sentences = re.split(r'(?<=[.!?])\s+', narration.strip())
+    sentences = [s.strip() for s in sentences if s.strip()]
+    if not sentences:
+        return []
+
+    word_counts = [len(s.split()) for s in sentences]
+    total_words = sum(word_counts) or 1
+    result = []
+    cursor = 0.0
+    for sentence, wc in zip(sentences, word_counts):
+        dur = (wc / total_words) * audio_duration
+        result.append({"text": sentence, "start": cursor, "end": cursor + dur})
+        cursor += dur
+    return result
+
+
+def _group_sentences_by_image(
+    timed_sentences: List[dict], num_images: int,
+) -> List[List[dict]]:
+    """
+    Split sentences into sequential groups, one per image.
+    If there are fewer sentences than images, only use as many images as sentences.
+    """
+    n = len(timed_sentences)
+    if n == 0 or num_images == 0:
+        return []
+    k = min(n, num_images)
+    groups: List[List[dict]] = []
+    base, extra = divmod(n, k)
+    start = 0
+    for i in range(k):
+        size = base + (1 if i < extra else 0)
+        groups.append(timed_sentences[start:start + size])
+        start += size
+    return groups
+
+
+# ---------- Per-sentence clip creation ----------
+
+_STATIC_VF = (
+    f"scale={VIDEO_WIDTH}:{VIDEO_HEIGHT}:force_original_aspect_ratio=increase,"
+    f"crop={VIDEO_WIDTH}:{VIDEO_HEIGHT},"
+    f"fps={VIDEO_FPS}"
+)
+
+
+def _make_sentence_clip(
+    image_path: str, clip_path: str, duration: float,
+    subtitle_png: str,
+) -> bool:
+    """Create a static image clip with optional subtitle overlay."""
+    if subtitle_png and os.path.exists(subtitle_png):
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg", "-y", "-loop", "1", "-i", image_path,
+                    "-i", subtitle_png,
+                    "-t", f"{duration:.3f}",
+                    "-filter_complex",
+                    f"[0:v]{_STATIC_VF}[bg];[bg][1:v]overlay=0:0",
+                    "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+                    "-an", clip_path,
+                ],
+                capture_output=True, timeout=90, check=True,
+            )
+            return os.path.exists(clip_path)
+        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            logger.warning("Sentence clip with subtitle failed: %s", e)
+
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-loop", "1", "-i", image_path,
+                "-t", f"{duration:.3f}",
+                "-vf", _STATIC_VF,
+                "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+                "-an", clip_path,
+            ],
+            capture_output=True, timeout=60, check=True,
+        )
+        return os.path.exists(clip_path)
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        logger.error("Sentence clip failed: %s", e)
+        return False
+
+
+# ---------- Final assembly ----------
+
+def _concat_clips_with_audio(clip_paths: List[str], audio_path: str, output_path: str) -> bool:
+    """Concatenate video clips and overlay audio track."""
+    concat_file = output_path + ".concat.txt"
+    try:
+        with open(concat_file, "w") as f:
+            for cp in clip_paths:
+                f.write(f"file '{cp}'\n")
+        subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-f", "concat", "-safe", "0", "-i", concat_file,
+                "-i", audio_path,
+                "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-b:a", "128k",
+                "-movflags", "+faststart",
+                output_path,
+            ],
+            capture_output=True, timeout=180, check=True,
+        )
+        return os.path.exists(output_path)
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        logger.error("Concat + audio merge failed: %s", e)
+        return False
+    finally:
+        if os.path.exists(concat_file):
+            try:
+                os.unlink(concat_file)
+            except OSError:
+                pass
+
+
+# ---------- Main service ----------
 
 class VideoService:
-    """Video generation via short-video-maker (Cerebras narration + TTS + Pexels + Remotion)."""
+    """Video generation via hybrid pipeline (AI images + TTS + ffmpeg)."""
 
     def __init__(self):
-        self.short_video_url = (
-            os.getenv("SHORT_VIDEO_MAKER_URL") or os.getenv("short_video_maker_url") or ""
-        ).strip().rstrip("/")
-        self.poll_interval = int(os.getenv("SHORT_VIDEO_MAKER_POLL_INTERVAL", "10"))
-        self.poll_timeout = int(os.getenv("SHORT_VIDEO_MAKER_TIMEOUT", "300"))
-        self.enabled = bool(self.short_video_url)
+        self._has_ffmpeg = shutil.which("ffmpeg") is not None
+
+        from .image import image_service
+        self._has_images = image_service.enabled
+
+        self.enabled = self._has_ffmpeg and self._has_images
+
         if not self.enabled:
-            logger.info("Video disabled: set SHORT_VIDEO_MAKER_URL to enable")
+            logger.info("Video disabled: need image provider + ffmpeg")
         else:
-            logger.info("Video backend: short-video-maker at %s", self.short_video_url)
+            logger.info("Video backend: hybrid pipeline (AI images + TTS + ffmpeg)")
 
     def generate(
         self,
@@ -142,107 +308,127 @@ class VideoService:
         prompt_override: Optional[str] = None,
         language: str = "en",
     ) -> Optional[Tuple[bytes, str]]:
-        """
-        Generate an educational video for the given topic.
-
-        Returns:
-            Tuple of (video_bytes, "video/mp4") or None if generation fails.
-        """
         if not self.enabled:
             return None
         if language and language.lower() != "en":
             logger.info("Video is English-only; skipping for language %s", language)
             return None
-        return self._generate_via_short_video_maker(topic, prompt_override)
+        return self._generate_hybrid_video(topic)
 
-    def _generate_via_short_video_maker(
-        self, topic: str, script_override: Optional[str] = None
-    ) -> Optional[Tuple[bytes, str]]:
-        """Create video via short-video-maker: POST → poll status → GET binary."""
-        text = script_override or _build_short_video_script(topic)
-        search_terms = _build_search_terms(topic)
-        payload = {
-            "scenes": [{"text": text, "searchTerms": search_terms}],
-            "config": {},
-        }
-        url = f"{self.short_video_url}/api/short-video"
+    def _generate_hybrid_video(self, topic: str) -> Optional[Tuple[bytes, str]]:
+        """
+        Pipeline: LLM script -> AI images + TTS in parallel -> per-sentence
+        static clips with subtitles -> concat + audio.
+        """
+        from .llm import generate_video_script
+        from .image import image_service
+        from .audio import tts_service
 
+        tmpdir = tempfile.mkdtemp(prefix="eduai_video_")
         try:
-            logger.info("Requesting video from short-video-maker for topic '%s'", topic)
-            r = requests.post(
-                url,
-                json=payload,
-                timeout=60,
-                headers={"Content-Type": "application/json"},
-            )
-            r.raise_for_status()
-            data = r.json()
-            video_id = data.get("videoId")
-            if not video_id:
-                logger.error("short-video-maker did not return videoId: %s", data)
+            script = generate_video_script(topic)
+            narration = script["narration"]
+            image_prompts = script["image_prompts"]
+            num_prompts = len(image_prompts)
+            logger.info("Hybrid video for '%s': %d prompts, narration %d chars",
+                        topic, num_prompts, len(narration))
+
+            image_bytes_list: List[Optional[bytes]] = [None] * num_prompts
+            audio_result = [None]
+
+            def gen_image(idx: int, prompt: str):
+                return idx, image_service.generate_from_prompt(prompt)
+
+            def gen_audio():
+                return tts_service.synthesize(narration)
+
+            with ThreadPoolExecutor(max_workers=num_prompts + 1) as pool:
+                futures = []
+                for i, prompt in enumerate(image_prompts):
+                    futures.append(pool.submit(gen_image, i, prompt))
+                audio_future = pool.submit(gen_audio)
+
+                for fut in as_completed(futures):
+                    try:
+                        idx, img_bytes = fut.result(timeout=60)
+                        image_bytes_list[idx] = img_bytes
+                    except Exception as e:
+                        logger.warning("Image generation failed: %s", e)
+
+                try:
+                    audio_result[0] = audio_future.result(timeout=60)
+                except Exception as e:
+                    logger.error("TTS synthesis failed: %s", e)
+
+            valid_images = [(i, b) for i, b in enumerate(image_bytes_list) if b is not None]
+            if len(valid_images) < MIN_IMAGES_REQUIRED:
+                logger.warning("Only %d images (need %d), aborting", len(valid_images), MIN_IMAGES_REQUIRED)
+                return None
+            if audio_result[0] is None:
+                logger.warning("TTS failed, aborting")
                 return None
 
-            logger.info(
-                "short-video-maker job %s: polling status every %ss (timeout %ss)",
-                video_id,
-                self.poll_interval,
-                self.poll_timeout,
-            )
-            status_url = f"{self.short_video_url}/api/short-video/{video_id}/status"
-            video_url = f"{self.short_video_url}/api/short-video/{video_id}"
-            deadline = time.monotonic() + self.poll_timeout
-            poll_count = 0
+            audio_bytes, audio_ct = audio_result[0]
+            audio_ext = ".mp3" if "mpeg" in audio_ct else ".wav"
+            audio_path = os.path.join(tmpdir, f"narration{audio_ext}")
+            with open(audio_path, "wb") as f:
+                f.write(audio_bytes)
 
-            while time.monotonic() < deadline:
-                poll_count += 1
-                sr = requests.get(status_url, timeout=90)
-                sr.raise_for_status()
-                status_data = sr.json()
-                st = status_data.get("status", "").lower()
-                elapsed = int(time.monotonic() - (deadline - self.poll_timeout))
-                logger.info(
-                    "short-video-maker status: %s (poll %s, %ss elapsed)",
-                    st or "(empty)",
-                    poll_count,
-                    elapsed,
-                )
-                if st == "ready":
-                    break
-                if st == "failed" or "error" in st:
-                    logger.warning("short-video-maker status failed: %s", status_data)
-                    return None
-                time.sleep(self.poll_interval)
+            img_paths: List[str] = []
+            for orig_idx, img_bytes in valid_images:
+                p = os.path.join(tmpdir, f"img_{orig_idx}.jpg")
+                with open(p, "wb") as f:
+                    f.write(img_bytes)
+                img_paths.append(p)
 
-            else:
-                logger.error("short-video-maker timed out after %ss", self.poll_timeout)
+            num_images = len(img_paths)
+            audio_duration = _get_audio_duration(audio_path)
+            logger.info("Audio: %.1fs, %d images", audio_duration, num_images)
+
+            timed = _time_sentences(narration, audio_duration)
+            if not timed:
+                logger.warning("No sentences parsed from narration")
                 return None
 
-            vr = requests.get(video_url, timeout=60)
-            vr.raise_for_status()
-            video_bytes = vr.content
-            if not video_bytes:
-                logger.warning("short-video-maker returned empty video")
-                return None
-            final_bytes = _ensure_video_under_limit(video_bytes)
-            if final_bytes is None:
-                logger.error(
-                    "Video size %s exceeds Twilio limit %s and compression failed or unavailable",
-                    len(video_bytes),
-                    MAX_VIDEO_SIZE_BYTES,
-                )
-                return None
-            logger.info("Generated video for topic '%s': %s bytes", topic, len(final_bytes))
-            return (final_bytes, "video/mp4")
+            groups = _group_sentences_by_image(timed, num_images)
 
-        except requests.exceptions.Timeout:
-            logger.error("short-video-maker request timed out for topic '%s'", topic)
-            return None
-        except requests.exceptions.RequestException as e:
-            logger.error("short-video-maker request failed for topic '%s': %s", topic, e)
-            return None
+            clip_paths = []
+            sent_counter = 0
+            for img_idx, group in enumerate(groups):
+                for s in group:
+                    dur = max(0.5, s["end"] - s["start"])
+                    sub_png = os.path.join(tmpdir, f"sub_{sent_counter}.png")
+                    _render_subtitle_image(s["text"], VIDEO_WIDTH, VIDEO_HEIGHT, sub_png)
+                    clip_path = os.path.join(tmpdir, f"clip_{sent_counter}.mp4")
+                    if _make_sentence_clip(img_paths[img_idx], clip_path, dur, sub_png):
+                        clip_paths.append(clip_path)
+                    sent_counter += 1
+
+            if len(clip_paths) < 2:
+                logger.warning("Too few clips (%d), aborting", len(clip_paths))
+                return None
+
+            output_path = os.path.join(tmpdir, "output.mp4")
+            if not _concat_clips_with_audio(clip_paths, audio_path, output_path):
+                logger.error("Final concat failed")
+                return None
+
+            with open(output_path, "rb") as f:
+                video_bytes = f.read()
+
+            final = _ensure_video_under_limit(video_bytes)
+            if final is None:
+                logger.error("Video over Twilio limit")
+                return None
+
+            logger.info("Hybrid video for '%s': %s bytes", topic, len(final))
+            return (final, "video/mp4")
+
         except Exception as e:
-            logger.error("Video generation failed for topic '%s': %s", topic, e)
+            logger.error("Hybrid pipeline failed for '%s': %s", topic, e)
             return None
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 video_service = VideoService()
@@ -253,19 +439,5 @@ def generate_lesson_video(
     language: str = "en",
     script_override: Optional[str] = None,
 ) -> Optional[Tuple[bytes, str]]:
-    """
-    Generate an educational video for a lesson topic (short-video-maker only).
-
-    Args:
-        topic: Lesson topic.
-        language: User language (English only).
-        script_override: Narration text from Cerebras (or fallback); longer script = longer video.
-
-    Returns:
-        (video_bytes, "video/mp4") or None.
-    """
-    return video_service.generate(
-        topic,
-        prompt_override=script_override,
-        language=language,
-    )
+    """Generate an educational video for a lesson topic."""
+    return video_service.generate(topic, prompt_override=script_override, language=language)

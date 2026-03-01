@@ -1,7 +1,7 @@
-# FastAPI and web framework dependencies
-fastapi==0.104.1
+# FastAPI and web framework
+fastapi>=0.115.2
 uvicorn==0.24.0
-python-multipart==0.0.6
+python-multipart>=0.0.18
 
 # Database
 sqlalchemy==2.0.23
@@ -10,7 +10,7 @@ alembic==1.12.1
 # Twilio for WhatsApp integration
 twilio==8.10.3
 
-# AI/ML dependencies (numpy 2.0.x–2.2.x: satisfies numba<2.3, opencv-headless>=2, kokoro-onnx>=2.0.2)
+# AI/ML
 numpy>=2.0.2,<2.3.0
 transformers>=4.46.0
 torch==2.4.1
@@ -19,7 +19,7 @@ torchaudio==2.4.1
 accelerate>=0.28.0
 safetensors>=0.4.0
 
-# RAG dependencies
+# RAG
 sentence-transformers>=2.2.2,<3.0.0
 chromadb>=0.4.15
 pypdf>=3.0.0
@@ -28,40 +28,22 @@ huggingface_hub>=0.16.0
 
 # Environment and configuration
 python-dotenv==1.0.0
-pyngrok==7.0.0
 
 # HTTP requests
-requests==2.31.0
+requests>=2.31.0
 
-# Cerebras SDK for LLM (thinking model)
+# Cerebras LLM
 cerebras-cloud-sdk>=1.50.1
 
-# Validation (compatible with Cerebras SDK)
-pydantic>=1.10.24,<2.0.0
+# Validation
+pydantic>=2.0.0,<3.0.0
 
-# Date/time utilities
+# Date/time
 python-dateutil==2.8.2
 
-# Audio processing (STT/TTS)
-openai>=1.0.0  # For Whisper API and TTS API
-openai-whisper>=20231117  # Local Whisper fallback (optional, for offline use)
-edge-tts>=6.1.0  # Microsoft Edge TTS fallback (free, Python 3.12 compatible, requires internet)
-torchaudio>=2.4.1  # Already included above, needed for Whisper
+# Audio: STT (local Whisper) and TTS (edge-tts)
+openai-whisper>=20231117
+edge-tts>=6.1.0
 
 # Image generation (resize/compress for WhatsApp)
 Pillow>=10.0.0
-
-# Optional: ModelScope text-to-video (primary video backend; needs GPU for good performance)
-# Install: pip install modelscope  then set USE_MODELSCOPE_VIDEO=1
-# The following are required/optional by modelscope and its text-to-video pipeline:
-addict>=2.4.0
-datasets>=2.0.0,<2.16.0  # ModelScope needs ALL_ALLOWED_EXTENSIONS (removed in datasets 2.16+)
-oss2>=2.18.0
-filelock>=3.0.0
-tqdm>=4.60.0
-opencv-python-headless>=4.5.0
-open-clip-torch>=2.20.0
-pytorch-lightning>=2.0.0
-einops>=0.6.0
-scipy>=1.9.0
-# optimum[onnxruntime]==1.16.0  # Uncomment for ONNX acceleration

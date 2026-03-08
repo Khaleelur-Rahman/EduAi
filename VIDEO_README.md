@@ -1,16 +1,16 @@
 # Video Generation
 
-Educational short videos for `/video <topic>`: **Cerebras narration + Cloudflare AI images + edge-tts + ffmpeg**.
+Educational short videos for `/video <topic>`: **Cerebras narration + Cloudflare AI images + edge-tts + ffmpeg**. Narration, audio, and subtitles follow the user’s **language** (English, Spanish, French, Malay, Chinese, Hindi).
 
 ## How It Works
 
-1. User sends `/video <topic>` (e.g. `/video photosynthesis`).
-2. **Cerebras LLM** generates a narration script and 4 unique image prompts for the topic.
+1. User sends `/video <topic>` (e.g. `/video photosynthesis`). The user’s set language is used.
+2. **Cerebras LLM** generates a narration script in that language and 4 unique image prompts (in English for the image model).
 3. In parallel:
    - **Cloudflare Workers AI** generates images (SDXL primary, FLUX fallback). HuggingFace Inference API is a secondary fallback.
-   - **edge-tts** (Microsoft Edge TTS) synthesizes the narration to audio.
-4. Narration is split into sentences with proportional timing. Sentences are grouped sequentially across images (one group per image, each image used exactly once).
-5. **ffmpeg** creates a static clip per sentence (image + subtitle overlay) and concatenates them with the audio track.
+   - **edge-tts** synthesizes the narration to audio in the same language (voice chosen by language and user age).
+4. Narration is split into sentences with proportional timing (language-aware for languages without spaces, e.g. Chinese). Sentences are grouped sequentially across images.
+5. **ffmpeg** creates a static clip per sentence (image + subtitle overlay in that language) and concatenates with the audio.
 6. Video is compressed if over 16 MB (Twilio limit) and sent via WhatsApp.
 
 ## Setup
@@ -40,6 +40,6 @@ Educational short videos for `/video <topic>`: **Cerebras narration + Cloudflare
 
 ## Limitations
 
-- English only.
+- Languages: same as bot (en, es, fr, ms, zh, hi). Unsupported language falls back to English.
 - Twilio: video must be ≤16 MB (auto-compressed if over limit).
 - AI-generated images occasionally contain visual artifacts; negative prompts are used to suppress unwanted text in images.

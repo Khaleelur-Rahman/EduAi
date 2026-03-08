@@ -100,7 +100,30 @@ def _get_audio_duration(audio_path: str) -> float:
 
 # ---------- Subtitle rendering via PIL ----------
 
-def _render_subtitle_image(text: str, width: int, height: int, out_path: str) -> bool:
+_SUBTITLE_FONT_PATHS = [
+    "/System/Library/Fonts/Helvetica.ttc",
+    "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+]
+
+
+def _get_subtitle_font(font_size: int, language: str = "en"):
+    """Load a font that can render the given language (Latin, CJK, Devanagari, etc.)."""
+    from PIL import ImageFont
+    paths = _SUBTITLE_FONT_PATHS if language in ("zh", "ja", "ko", "hi") else _SUBTITLE_FONT_PATHS[:3]
+    for path in paths:
+        try:
+            return ImageFont.truetype(path, font_size)
+        except (OSError, IOError):
+            continue
+    return ImageFont.load_default()
+
+
+def _render_subtitle_image(
+    text: str, width: int, height: int, out_path: str, language: str = "en"
+) -> bool:
     """Render one subtitle sentence as a transparent PNG overlay."""
     try:
         from PIL import Image, ImageDraw, ImageFont
@@ -108,31 +131,37 @@ def _render_subtitle_image(text: str, width: int, height: int, out_path: str) ->
         return False
 
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    font_size = max(22, height // 22)
+    font = _get_subtitle_font(font_size, language)
     draw = ImageDraw.Draw(img)
 
-    font_size = max(22, height // 22)
-    try:
-        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
-    except (OSError, IOError):
-        try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
-        except (OSError, IOError):
-            font = ImageFont.load_default()
-
     max_text_w = int(width * 0.88)
-    words = text.split()
     lines: List[str] = []
-    current = ""
-    for word in words:
-        test = f"{current} {word}".strip()
-        bbox = draw.textbbox((0, 0), test, font=font)
-        if bbox[2] - bbox[0] > max_text_w and current:
+    if language in ("zh", "ja", "ko"):
+        current = ""
+        for char in text:
+            test = current + char
+            bbox = draw.textbbox((0, 0), test, font=font)
+            if bbox[2] - bbox[0] > max_text_w and current:
+                lines.append(current)
+                current = char
+            else:
+                current = test
+        if current:
             lines.append(current)
-            current = word
-        else:
-            current = test
-    if current:
-        lines.append(current)
+    else:
+        words = text.split()
+        current = ""
+        for word in words:
+            test = f"{current} {word}".strip()
+            bbox = draw.textbbox((0, 0), test, font=font)
+            if bbox[2] - bbox[0] > max_text_w and current:
+                lines.append(current)
+                current = word
+            else:
+                current = test
+        if current:
+            lines.append(current)
     if not lines:
         return False
 
@@ -160,22 +189,33 @@ def _render_subtitle_image(text: str, width: int, height: int, out_path: str) ->
 
 # ---------- Timed sentence splitting ----------
 
-def _time_sentences(narration: str, audio_duration: float) -> List[dict]:
+def _time_sentences(narration: str, audio_duration: float, language: str = "en") -> List[dict]:
     """
-    Split narration into individual sentences with proportional timing.
+    Split narration into sentences with proportional timing.
+    For languages without spaces (zh, ja, ko, hi), uses character-based weight.
     Returns [{"text": str, "start": float, "end": float}, ...].
     """
-    sentences = re.split(r'(?<=[.!?])\s+', narration.strip())
+    # Split on sentence-ending punctuation; for CJK etc. also split on。！？
+    text = narration.strip()
+    if not text:
+        return []
+    separators = r'(?<=[.!?])\s+'
+    if language in ("zh", "ja", "ko"):
+        separators = r'(?<=[.!?。！？])\s*'
+    sentences = re.split(separators, text)
     sentences = [s.strip() for s in sentences if s.strip()]
     if not sentences:
         return []
 
-    word_counts = [len(s.split()) for s in sentences]
-    total_words = sum(word_counts) or 1
+    if language in ("zh", "ja", "ko", "hi", "th"):
+        weights = [max(1, len(s) // 3) for s in sentences]
+    else:
+        weights = [len(s.split()) for s in sentences]
+    total = sum(weights) or 1
     result = []
     cursor = 0.0
-    for sentence, wc in zip(sentences, word_counts):
-        dur = (wc / total_words) * audio_duration
+    for sentence, w in zip(sentences, weights):
+        dur = (w / total) * audio_duration
         result.append({"text": sentence, "start": cursor, "end": cursor + dur})
         cursor += dur
     return result
@@ -307,18 +347,22 @@ class VideoService:
         topic: str,
         prompt_override: Optional[str] = None,
         language: str = "en",
+        age_group: int = 10,
     ) -> Optional[Tuple[bytes, str]]:
         if not self.enabled:
             return None
-        if language and language.lower() != "en":
-            logger.info("Video is English-only; skipping for language %s", language)
-            return None
-        return self._generate_hybrid_video(topic)
+        from .language import SUPPORTED_LANGUAGES
+        lang = (language or "en").strip().lower()
+        if lang not in SUPPORTED_LANGUAGES:
+            lang = "en"
+        return self._generate_hybrid_video(topic, lang, age_group)
 
-    def _generate_hybrid_video(self, topic: str) -> Optional[Tuple[bytes, str]]:
+    def _generate_hybrid_video(
+        self, topic: str, language: str = "en", age_group: int = 10
+    ) -> Optional[Tuple[bytes, str]]:
         """
-        Pipeline: LLM script -> AI images + TTS in parallel -> per-sentence
-        static clips with subtitles -> concat + audio.
+        Pipeline: LLM script (in target language) -> AI images + TTS in parallel
+        -> per-sentence static clips with subtitles -> concat + audio.
         """
         from .llm import generate_video_script
         from .image import image_service
@@ -326,12 +370,12 @@ class VideoService:
 
         tmpdir = tempfile.mkdtemp(prefix="eduai_video_")
         try:
-            script = generate_video_script(topic)
+            script = generate_video_script(topic, age_group=age_group, num_images=4, language=language)
             narration = script["narration"]
             image_prompts = script["image_prompts"]
             num_prompts = len(image_prompts)
-            logger.info("Hybrid video for '%s': %d prompts, narration %d chars",
-                        topic, num_prompts, len(narration))
+            logger.info("Hybrid video for '%s' (%s): %d prompts, narration %d chars",
+                        topic, language, num_prompts, len(narration))
 
             image_bytes_list: List[Optional[bytes]] = [None] * num_prompts
             audio_result = [None]
@@ -340,7 +384,7 @@ class VideoService:
                 return idx, image_service.generate_from_prompt(prompt)
 
             def gen_audio():
-                return tts_service.synthesize(narration)
+                return tts_service.synthesize(narration, age_group=age_group, language=language)
 
             with ThreadPoolExecutor(max_workers=num_prompts + 1) as pool:
                 futures = []
@@ -385,7 +429,7 @@ class VideoService:
             audio_duration = _get_audio_duration(audio_path)
             logger.info("Audio: %.1fs, %d images", audio_duration, num_images)
 
-            timed = _time_sentences(narration, audio_duration)
+            timed = _time_sentences(narration, audio_duration, language)
             if not timed:
                 logger.warning("No sentences parsed from narration")
                 return None
@@ -398,7 +442,7 @@ class VideoService:
                 for s in group:
                     dur = max(0.5, s["end"] - s["start"])
                     sub_png = os.path.join(tmpdir, f"sub_{sent_counter}.png")
-                    _render_subtitle_image(s["text"], VIDEO_WIDTH, VIDEO_HEIGHT, sub_png)
+                    _render_subtitle_image(s["text"], VIDEO_WIDTH, VIDEO_HEIGHT, sub_png, language)
                     clip_path = os.path.join(tmpdir, f"clip_{sent_counter}.mp4")
                     if _make_sentence_clip(img_paths[img_idx], clip_path, dur, sub_png):
                         clip_paths.append(clip_path)
@@ -437,7 +481,10 @@ video_service = VideoService()
 def generate_lesson_video(
     topic: str,
     language: str = "en",
+    age_group: int = 10,
     script_override: Optional[str] = None,
 ) -> Optional[Tuple[bytes, str]]:
-    """Generate an educational video for a lesson topic."""
-    return video_service.generate(topic, prompt_override=script_override, language=language)
+    """Generate an educational video for a lesson topic in the requested language."""
+    return video_service.generate(
+        topic, prompt_override=script_override, language=language, age_group=age_group
+    )

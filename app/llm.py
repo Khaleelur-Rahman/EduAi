@@ -276,38 +276,52 @@ Continue the lesson naturally, referencing what was just covered and building on
             logger.info(f"Falling back to predefined lesson for topic: {topic}")
             return self._get_fallback_lesson(topic, age_group)
 
-    def generate_video_script(self, topic: str, age_group: int = 10, num_images: int = 4) -> dict:
+    def generate_video_script(
+        self, topic: str, age_group: int = 10, num_images: int = 4, language: str = "en"
+    ) -> dict:
         """
         Generate a narration script and matching image prompts for the hybrid video pipeline.
-        Uses two sequential LLM calls (plain text) since the thinking model often returns
-        empty for JSON-structured requests.  Retries narration once on empty.
+        Narration is in the requested language; image prompts stay in English for model compatibility.
         """
         t = topic.strip()
 
         narration = ""
         for attempt in range(3):
-            narration = self._generate_narration_text(t, age_group)
-            word_count = len(narration.split()) if narration else 0
+            narration = self._generate_narration_text(t, age_group, language)
+            word_count = self._word_count_for_narration(narration, language)
             if narration and word_count >= 40:
                 break
             logger.info("Narration attempt %d for '%s': %d words, retrying", attempt + 1, t, word_count)
-        if not narration or len(narration.split()) < 40:
+        if not narration or self._word_count_for_narration(narration, language) < 40:
             logger.info("Video narration for '%s': using fallback", topic)
-            return self._video_script_fallback(topic, num_images)
+            return self._video_script_fallback(topic, num_images, language)
 
         image_prompts = self._generate_image_prompts(t, num_images)
         if len(image_prompts) < MIN_IMAGE_PROMPTS:
             logger.info("Only %d image prompts for '%s', using defaults", len(image_prompts), t)
             image_prompts = self._default_image_prompts(t, num_images)
 
-        logger.info("Video script for '%s': narration %d chars, %d image prompts",
-                     topic, len(narration), len(image_prompts))
+        logger.info("Video script for '%s' (%s): narration %d chars, %d image prompts",
+                     topic, language, len(narration), len(image_prompts))
         return {"narration": narration, "image_prompts": image_prompts}
 
-    def _generate_narration_text(self, topic_title: str, age_group: int) -> str:
-        """Generate plain-text narration via Cerebras streaming."""
+    def _word_count_for_narration(self, text: str, language: str) -> int:
+        """Approximate word count for timing; use char-based for languages without spaces."""
+        if not text or not text.strip():
+            return 0
+        if language in ("zh", "ja", "ko", "hi", "th"):
+            return max(1, len(text.strip()) // 3)
+        return len(text.strip().split())
+
+    def _generate_narration_text(self, topic_title: str, age_group: int, language: str = "en") -> str:
+        """Generate plain-text narration via Cerebras streaming in the requested language."""
         if not (self._initialized or self._try_initialize()):
             return ""
+        lang_instruction = ""
+        if language and language != "en":
+            from .language import get_language_name
+            lang_name = get_language_name(language, native=True)
+            lang_instruction = f" Write the ENTIRE narration in {lang_name} ({language.upper()}). No English."
         system = (
             "You write short voiceover scripts for educational videos. "
             "Output ONLY the narration text, no titles or labels. "
@@ -315,6 +329,7 @@ Continue the lesson naturally, referencing what was just covered and building on
             "Length: about 20 to 30 seconds when read aloud (roughly 60-80 words). "
             "Plain prose, written to be read aloud. No bullet points, no markdown. "
             "Do not include <think>, reasoning, or any text that is not the spoken narration."
+            + lang_instruction
         )
         user = (
             f'Write the voiceover for a short educational video about "{topic_title}". '
@@ -322,6 +337,10 @@ Continue the lesson naturally, referencing what was just covered and building on
             "Include 2-3 concrete facts and one simple example. "
             "Output only the narration, nothing else."
         )
+        if language and language != "en":
+            from .language import get_language_name
+            lang_name = get_language_name(language, native=True)
+            user += f" Write the narration entirely in {lang_name}."
         try:
             response = self.client.chat.completions.create(
                 model=self.model_name,
@@ -404,8 +423,8 @@ Continue the lesson naturally, referencing what was just covered and building on
             f"Animated cartoon style illustration explaining {topic_title}, friendly characters, bright pastel colors, simple shapes",
         ][:num_images]
 
-    def _video_script_fallback(self, topic: str, num_images: int = 4) -> dict:
-        """Static fallback when LLM is unavailable."""
+    def _video_script_fallback(self, topic: str, num_images: int = 4, language: str = "en") -> dict:
+        """Static fallback when LLM is unavailable. Narration in English."""
         t = topic.strip()
         narration = (
             f"Today we're going to learn about {t}. "
@@ -668,9 +687,11 @@ def generate_lesson(topic: str, age_group: int, user_name: str = "",
                                       for_audio=for_audio, language=language)
 
 
-def generate_video_script(topic: str, age_group: int = 10, num_images: int = 4) -> dict:
-    """Generate narration + image prompts for the hybrid video pipeline."""
-    return llm_service.generate_video_script(topic, age_group, num_images)
+def generate_video_script(
+    topic: str, age_group: int = 10, num_images: int = 4, language: str = "en"
+) -> dict:
+    """Generate narration + image prompts for the hybrid video pipeline. Narration in requested language."""
+    return llm_service.generate_video_script(topic, age_group, num_images, language)
 
 
 def initialize_llm():

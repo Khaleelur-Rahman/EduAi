@@ -833,7 +833,11 @@ def process_whatsapp_message_request_video(db: Session, phone_number: str, messa
 
     result = {"text": f"📹 Here’s your short video on {clean_topic_title(topic)}!"}
     try:
-        out = generate_lesson_video(topic, language=user.language or "en")
+        out = generate_lesson_video(
+            topic,
+            language=user.language or "en",
+            age_group=user.age if user.age else 10,
+        )
         if out:
             video_bytes, content_type = out
             result["video_bytes"] = video_bytes

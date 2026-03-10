@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session, relationship
-from typing import Generator
+from typing import Generator, Optional
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./whatsapp_tutor.db")
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {})
@@ -90,6 +90,20 @@ class QuizProgress(Base):
     
     def __repr__(self):
         return f"<QuizProgress(user_id={self.user_id}, topic={self.topic}, step={self.lesson_step}, completed={self.completed})>"
+
+
+class DashboardCode(Base):
+    """One-time codes for dashboard PIN auth (sent via WhatsApp)."""
+    __tablename__ = "dashboard_codes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    phone_number = Column(String(20), nullable=False, index=True)
+    code_hash = Column(String(64), nullable=False)  # SHA-256 hex of 6-digit code
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    def __repr__(self):
+        return f"<DashboardCode(phone_number={self.phone_number}, expires_at={self.expires_at})>"
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -217,6 +231,30 @@ def get_completed_quizzes(db: Session, user_id: int, limit: int = 10):
         QuizProgress.user_id == user_id,
         QuizProgress.completed == True
     ).order_by(QuizProgress.updated_at.desc()).limit(limit).all()
+
+
+def get_dashboard_code(db: Session, phone_number: str) -> Optional[DashboardCode]:
+    """Get the latest dashboard code for this phone that has not expired."""
+    return db.query(DashboardCode).filter(
+        DashboardCode.phone_number == phone_number,
+        DashboardCode.expires_at > datetime.utcnow()
+    ).order_by(DashboardCode.created_at.desc()).first()
+
+
+def create_dashboard_code(db: Session, phone_number: str, code_hash: str, expires_at: datetime) -> DashboardCode:
+    """Store a new dashboard code (replace any existing for this phone)."""
+    db.query(DashboardCode).filter(DashboardCode.phone_number == phone_number).delete()
+    row = DashboardCode(phone_number=phone_number, code_hash=code_hash, expires_at=expires_at)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def delete_dashboard_code(db: Session, phone_number: str) -> None:
+    """Remove dashboard code(s) for this phone after successful verification."""
+    db.query(DashboardCode).filter(DashboardCode.phone_number == phone_number).delete()
+    db.commit()
 
 
 if __name__ == "__main__":

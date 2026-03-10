@@ -1,12 +1,16 @@
 import os
+import re
+import json
 import logging
+import hmac
 import uuid
 from contextlib import asynccontextmanager
 from typing import Dict, Any
 from datetime import datetime, timedelta
 
 from fastapi import FastAPI, Request, Depends, HTTPException, Form, BackgroundTasks
-from fastapi.responses import Response, FileResponse
+from fastapi.responses import Response, FileResponse, RedirectResponse, HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from twilio.twiml.messaging_response import MessagingResponse
 from twilio.rest import Client as TwilioClient
@@ -201,6 +205,138 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log every request so we can see if Twilio webhook hits the app."""
+    logger.info("Request: %s %s", request.method, request.url.path)
+    response = await call_next(request)
+    return response
+
+
+# Dashboard: templates and session cookie
+_templates_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
+if os.path.isdir(_templates_dir):
+    templates = Jinja2Templates(directory=_templates_dir)
+else:
+    templates = None  # templates not found (e.g. running from different cwd)
+DASHBOARD_SESSION_COOKIE = "dashboard_session"
+DASHBOARD_COOKIE_MAX_AGE = 7 * 24 * 3600  # 7 days
+
+
+def _normalize_phone(phone: str) -> str:
+    """Normalize to E.164-like (digits with leading +)."""
+    if not phone:
+        return ""
+    p = (phone or "").strip().replace("whatsapp:", "").strip()
+    if not p.startswith("+"):
+        p = "+" + p
+    return p
+
+
+def _get_dashboard_user_from_request(request: Request) -> Dict[str, Any]:
+    """Get current dashboard user from session cookie. Returns {} if not authenticated."""
+    try:
+        from .dashboard_auth import verify_session_value
+        cookie = request.cookies.get(DASHBOARD_SESSION_COOKIE)
+        if not cookie:
+            return {}
+        data = verify_session_value(cookie)
+        return data if data else {}
+    except Exception:
+        return {}
+
+
+def _compute_analytics(db: Session, user_id: int) -> Dict[str, Any]:
+    """Compute progress analytics for dashboard charts and KPIs."""
+    import json
+    from collections import defaultdict
+    from .db import Progress, QuizProgress, get_user_progress, get_user_quizzes
+
+    progress_list = get_user_progress(db, user_id, limit=500)
+    quizzes_list = get_user_quizzes(db, user_id, limit=500)
+
+    total_lessons = len(progress_list)
+    total_quizzes = len([q for q in quizzes_list if getattr(q, "completed", False)])
+
+    # Per-topic: parts completed (max lesson_step per topic, total_parts = max total_steps for that topic)
+    topic_parts = defaultdict(lambda: {"max_step": 0, "total_steps": 1})
+    for p in progress_list:
+        key = p.topic
+        topic_parts[key]["max_step"] = max(topic_parts[key]["max_step"], p.lesson_step or 1)
+        topic_parts[key]["total_steps"] = max(topic_parts[key]["total_steps"], p.total_steps or 1)
+    lesson_parts_by_topic = [
+        {"topic": t, "parts_completed": data["max_step"], "total_parts": data["total_steps"]}
+        for t, data in sorted(topic_parts.items())
+    ]
+    unique_topics = len(topic_parts)  # Number of distinct topics the user has done at least one lesson part on
+
+    quiz_scores_pct = []
+    for q in quizzes_list:
+        if not getattr(q, "completed", False):
+            continue
+        try:
+            qs = json.loads(q.questions) if isinstance(q.questions, str) else q.questions
+            total_q = len(qs) if isinstance(qs, list) else 3
+        except (json.JSONDecodeError, TypeError):
+            total_q = 3
+        score = q.score if q.score is not None else 0
+        if total_q > 0:
+            quiz_scores_pct.append(100 * score / total_q)
+    average_quiz_score_pct = sum(quiz_scores_pct) / len(quiz_scores_pct) if quiz_scores_pct else 0
+
+    # Time series: by date (use created_at for lessons; for completed use updated_at)
+    lessons_by_date = defaultdict(int)
+    for p in progress_list:
+        if getattr(p, "completed", False):
+            d = (p.updated_at or p.created_at).strftime("%Y-%m-%d") if hasattr(p, "updated_at") else p.created_at.strftime("%Y-%m-%d")
+        else:
+            d = p.created_at.strftime("%Y-%m-%d")
+        lessons_by_date[d] += 1
+    quizzes_by_date = defaultdict(int)
+    for q in quizzes_list:
+        if getattr(q, "completed", False):
+            d = (q.updated_at or q.created_at).strftime("%Y-%m-%d") if hasattr(q, "updated_at") else q.created_at.strftime("%Y-%m-%d")
+            quizzes_by_date[d] += 1
+
+    lessons_by_date_list = [{"date": k, "count": v} for k, v in sorted(lessons_by_date.items())]
+    quizzes_by_date_list = [{"date": k, "count": v} for k, v in sorted(quizzes_by_date.items())]
+
+    # By topic: lesson count and average quiz score
+    lesson_count_by_topic = defaultdict(int)
+    for p in progress_list:
+        lesson_count_by_topic[p.topic] += 1
+    topic_scores = defaultdict(list)
+    for q in quizzes_list:
+        if not getattr(q, "completed", False):
+            continue
+        try:
+            qs = json.loads(q.questions) if isinstance(q.questions, str) else q.questions
+            total_q = len(qs) if isinstance(qs, list) else 3
+        except (json.JSONDecodeError, TypeError):
+            total_q = 3
+        score = q.score if q.score is not None else 0
+        if total_q > 0:
+            topic_scores[q.topic].append(100 * score / total_q)
+    quiz_score_by_topic = [
+        {"topic": t, "average_score_pct": sum(s) / len(s), "count": len(s)}
+        for t, s in topic_scores.items()
+    ]
+    quiz_score_by_topic.sort(key=lambda x: x["average_score_pct"])
+
+    return {
+        "total_lessons": total_lessons,
+        "unique_topics": unique_topics,
+        "total_quizzes": total_quizzes,
+        "average_quiz_score_pct": round(average_quiz_score_pct, 1),
+        "lessons_by_date": lessons_by_date_list,
+        "quizzes_by_date": quizzes_by_date_list,
+        "lesson_parts_by_topic": lesson_parts_by_topic,
+        "lesson_count_by_topic": [{"topic": t, "count": c} for t, c in lesson_count_by_topic.items()],
+        "quiz_score_by_topic": quiz_score_by_topic,
+    }
+
+
 @app.get("/")
 async def root():
     return {
@@ -213,6 +349,16 @@ async def root():
             "video": "/video/{video_id} (temporary video serving)"
         }
     }
+
+
+@app.get("/whatsapp")
+@app.get("/whatsapp/")
+async def whatsapp_webhook_get():
+    """Allow checking that the tunnel reaches the app. Twilio must use POST."""
+    return Response(
+        content="EduBot webhook is live. Twilio should send POST requests here.",
+        media_type="text/plain",
+    )
 
 @app.get("/audio/{audio_id}")
 async def serve_audio(audio_id: str, request: Request):
@@ -620,9 +766,12 @@ def _process_message_in_background(
     phone_number: str,
     body_text: str,
     base_url: str,
-    db: Session
 ) -> None:
-    """Process message and send response via REST API in background."""
+    """Process message and send response via REST API in background.
+    Uses its own DB session; do not pass the request-scoped session (it is closed after the response).
+    """
+    from .db import SessionLocal
+    db = SessionLocal()
     try:
         msg_lower = body_text.strip().lower()
         if msg_lower.startswith("/audio"):
@@ -631,17 +780,18 @@ def _process_message_in_background(
             response = process_whatsapp_message_request_video(db, phone_number, body_text)
         else:
             response = process_whatsapp_message(db, phone_number, body_text)
-        
-        # Send response via REST API (pass base_url as string)
         _send_response_via_rest(base_url, phone_number, response)
     except Exception as e:
         logger.error(f"Error in background message processing: {e}")
+    finally:
+        db.close()
 
 @app.post("/whatsapp")
+@app.post("/whatsapp/")
 async def whatsapp_webhook(
     request: Request,
     Body: str = Form(None),
-    From: str = Form(...),
+    From: str = Form(None),
     To: str = Form(None),
     NumMedia: str = Form("0"),
     MediaUrl0: str = Form(None),
@@ -649,11 +799,14 @@ async def whatsapp_webhook(
     background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db)
 ):
+    logger.info("WhatsApp webhook entered: From=%s, Body=%s", From, (Body or "")[:80])
     try:
+        if not From:
+            logger.error("Twilio webhook missing From parameter")
+            raise HTTPException(status_code=400, detail="Missing From")
         phone_number = From.replace('whatsapp:', '').strip()
-        
         if not phone_number:
-            logger.error("Invalid phone number received")
+            logger.error("Invalid phone number received: %s", From)
             raise HTTPException(status_code=400, detail="Invalid phone number")
         
         num_media = int(NumMedia) if NumMedia else 0
@@ -743,8 +896,8 @@ async def whatsapp_webhook(
             _detect_command_and_send_loading(phone_number, body_text, user_language)
             # Extract base URL before background task (request may not be available in background)
             base_url = _get_base_url(request)
-            # Process in background and send via REST API
-            background_tasks.add_task(_process_message_in_background, phone_number, body_text, base_url, db)
+            # Process in background and send via REST API (background task creates its own DB session)
+            background_tasks.add_task(_process_message_in_background, phone_number, body_text, base_url)
             # Return empty TwiML immediately so webhook responds fast
             return Response(content=str(MessagingResponse()), media_type="application/xml")
         
@@ -849,6 +1002,305 @@ async def get_user_progress(phone_number: str, db: Session = Depends(get_db)):
             } for q in quizzes
         ]
     }
+
+
+# ---------- Dashboard (session + PIN auth) ----------
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_landing_or_redirect(request: Request, token: str = None, db: Session = Depends(get_db)):
+    """If token in query: verify, set session cookie, redirect to view. Else if session valid: redirect. Else: show landing (phone + request code)."""
+    from .dashboard_auth import verify_dashboard_token, verify_session_value, create_session_value
+    from .db import get_user_by_phone
+
+    if token:
+        data = verify_dashboard_token(token)
+        if data:
+            user = get_user_by_phone(db, data["phone"])
+            if user:
+                session_val = create_session_value(user.id, user.phone_number)
+                response = RedirectResponse(url="/dashboard/view", status_code=302)
+                response.set_cookie(
+                    key=DASHBOARD_SESSION_COOKIE,
+                    value=session_val,
+                    max_age=DASHBOARD_COOKIE_MAX_AGE,
+                    httponly=True,
+                    samesite="lax",
+                )
+                return response
+        if templates:
+            return templates.TemplateResponse(
+                request=request,
+                name="dashboard_landing.html",
+                context={"error": "Link expired. Enter your number to receive a new code.", "phone": ""},
+            )
+
+    session_user = _get_dashboard_user_from_request(request)
+    if session_user:
+        return RedirectResponse(url="/dashboard/view", status_code=302)
+
+    if not templates:
+        raise HTTPException(status_code=503, detail="Dashboard templates not available")
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard_landing.html",
+        context={"error": None, "phone": ""},
+    )
+
+
+@app.get("/dashboard/view", response_class=HTMLResponse)
+async def dashboard_view(request: Request, db: Session = Depends(get_db)):
+    """Show dashboard (KPIs, charts, recent activity). Requires valid session."""
+    session_user = _get_dashboard_user_from_request(request)
+    if not session_user:
+        return RedirectResponse(url="/dashboard", status_code=302)
+
+    from .db import get_user_by_phone, get_user_progress, get_user_quizzes
+
+    user = get_user_by_phone(db, session_user["phone"])
+    if not user:
+        return RedirectResponse(url="/dashboard", status_code=302)
+
+    progress = get_user_progress(db, user.id, limit=15)
+    quizzes_raw = get_user_quizzes(db, user.id, limit=15)
+    # Build quiz list with total_questions for score display (e.g. 1/3)
+    quizzes = []
+    for q in quizzes_raw:
+        total_q = 3
+        try:
+            qs = json.loads(q.questions) if isinstance(q.questions, str) else q.questions
+            if isinstance(qs, list):
+                total_q = len(qs)
+        except (TypeError, ValueError):
+            pass
+        quizzes.append({
+            "id": q.id,
+            "topic": q.topic,
+            "lesson_step": q.lesson_step,
+            "score": q.score if q.score is not None else 0,
+            "total_questions": total_q,
+            "completed": bool(q.completed),
+            "created_at": q.created_at,
+        })
+    analytics = _compute_analytics(db, user.id)
+    analytics_json = json.dumps(analytics)
+
+    if not templates:
+        raise HTTPException(status_code=503, detail="Dashboard templates not available")
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard_view.html",
+        context={
+            "user_name": user.name or "Learner",
+            "progress": progress,
+            "quizzes": quizzes,
+            "analytics": analytics,
+            "analytics_json": analytics_json,
+        },
+    )
+
+
+@app.post("/dashboard/request-code")
+async def dashboard_request_code(request: Request, db: Session = Depends(get_db)):
+    """Send a 6-digit code to the user's WhatsApp. Body: phone (form or JSON)."""
+    import secrets
+    import hashlib
+    from datetime import datetime, timedelta
+    from .db import get_user_by_phone, create_dashboard_code
+
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    phone = (body.get("phone") or (await request.form()).get("phone") or "").strip()
+    phone = _normalize_phone(phone)
+    if not phone or len(phone) < 10:
+        raise HTTPException(status_code=400, detail="Invalid phone number")
+
+    user = get_user_by_phone(db, phone)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found. Use EduBot on WhatsApp first.")
+
+    code = "".join(secrets.choice("0123456789") for _ in range(6))
+    code_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()
+    expires_at = datetime.utcnow() + timedelta(minutes=10)
+    create_dashboard_code(db, phone, code_hash, expires_at)
+
+    if TWILIO_CLIENT and TWILIO_PHONE_NUMBER:
+        to_wa = _whatsapp_from(phone)
+        from_wa = _whatsapp_from(TWILIO_PHONE_NUMBER)
+        try:
+            TWILIO_CLIENT.messages.create(
+                from_=from_wa,
+                to=to_wa,
+                body=f"Your EduBot dashboard code is: {code}",
+            )
+        except Exception as e:
+            logger.warning("Failed to send dashboard code via WhatsApp: %s", e)
+            raise HTTPException(status_code=503, detail="Could not send code. Try again later.")
+
+    return {"status": "ok", "message": "Code sent to your WhatsApp"}
+
+
+@app.post("/dashboard/verify-code")
+async def dashboard_verify_code(request: Request, db: Session = Depends(get_db)):
+    """Verify 6-digit code and set session cookie."""
+    import hashlib
+    from .dashboard_auth import verify_session_value, create_session_value
+    from .db import get_user_by_phone, get_dashboard_code, delete_dashboard_code
+
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    form = await request.form() if not body else {}
+    phone = (body.get("phone") or form.get("phone") or "").strip()
+    phone = _normalize_phone(phone)
+    code = (body.get("code") or form.get("code") or "").strip()
+
+    if not phone or not code or len(code) != 6 or not code.isdigit():
+        raise HTTPException(status_code=400, detail="Invalid phone or code")
+
+    row = get_dashboard_code(db, phone)
+    if not row:
+        raise HTTPException(status_code=400, detail="Code expired or not found. Request a new code.")
+
+    code_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()
+    if not hmac.compare_digest(row.code_hash, code_hash):
+        raise HTTPException(status_code=400, detail="Invalid code")
+
+    delete_dashboard_code(db, phone)
+    user = get_user_by_phone(db, phone)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    session_val = create_session_value(user.id, user.phone_number)
+    response = JSONResponse(content={"status": "ok", "redirect": "/dashboard/view"})
+    response.set_cookie(
+        key=DASHBOARD_SESSION_COOKIE,
+        value=session_val,
+        max_age=DASHBOARD_COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+    )
+    return response
+
+
+@app.get("/me/progress")
+async def me_progress(request: Request, db: Session = Depends(get_db)):
+    """Progress for the current dashboard user (session-based)."""
+    session_user = _get_dashboard_user_from_request(request)
+    if not session_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    from .db import get_user_by_phone, get_user_progress, get_user_quizzes
+    user = get_user_by_phone(db, session_user["phone"])
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    progress = get_user_progress(db, user.id)
+    quizzes = get_user_quizzes(db, user.id)
+    return {
+        "user": {"name": user.name, "age": user.age, "country": user.country},
+        "progress": [{"id": p.id, "topic": p.topic, "lesson_step": p.lesson_step, "total_steps": p.total_steps, "completed": p.completed, "created_at": p.created_at} for p in progress],
+        "quizzes": [{"id": q.id, "topic": q.topic, "lesson_step": q.lesson_step, "score": q.score, "completed": q.completed, "created_at": q.created_at} for q in quizzes],
+    }
+
+
+@app.get("/users/{phone_number}/progress/analytics")
+async def get_user_progress_analytics(phone_number: str, request: Request, db: Session = Depends(get_db)):
+    """Analytics for a user by phone (for API). Session or token can be used to restrict to self later."""
+    from .db import get_user_by_phone
+    user = get_user_by_phone(db, _normalize_phone(phone_number))
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return _compute_analytics(db, user.id)
+
+
+@app.get("/me/progress/analytics")
+async def me_progress_analytics(request: Request, db: Session = Depends(get_db)):
+    """Analytics for the current dashboard user (session-based)."""
+    session_user = _get_dashboard_user_from_request(request)
+    if not session_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    from .db import get_user_by_phone
+    user = get_user_by_phone(db, session_user["phone"])
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return _compute_analytics(db, user.id)
+
+
+@app.get("/me/quiz/{quiz_id}")
+async def me_quiz_detail(quiz_id: int, request: Request, db: Session = Depends(get_db)):
+    """Return one quiz with questions, correct answers, and user's answers for revision."""
+    session_user = _get_dashboard_user_from_request(request)
+    if not session_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    from .db import get_user_by_phone, QuizProgress
+    user = get_user_by_phone(db, session_user["phone"])
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    quiz = db.query(QuizProgress).filter(
+        QuizProgress.id == int(quiz_id),
+        QuizProgress.user_id == user.id,
+    ).first()
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+    try:
+        questions = json.loads(quiz.questions) if isinstance(quiz.questions, str) else quiz.questions
+    except (TypeError, ValueError):
+        questions = []
+    # Parse user_answers string (e.g. "1A, 2B, 3True") into per-question answers
+    answer_dict = {}
+    if quiz.user_answers:
+        pairs = re.findall(r"\d+[A-DTtFf]|\d+(?:True|False)", quiz.user_answers, re.IGNORECASE)
+        for pair in pairs:
+            match = re.match(r"(\d+)([A-D]|True|False|T|F)", pair.strip(), re.IGNORECASE)
+            if match:
+                q_num = int(match.group(1))
+                ans = match.group(2)
+                if ans.upper() == "T":
+                    ans = "True"
+                elif ans.upper() == "F":
+                    ans = "False"
+                answer_dict[q_num] = ans
+    # Build list with user_answer and correct/incorrect per question
+    result = []
+    for i, q in enumerate(questions):
+        q_num = i + 1
+        user_ans = answer_dict.get(q_num, "")
+        correct_ans = str(q.get("correct_answer", "")).strip()
+        options = q.get("options") or []
+        # Resolve correct display: letter -> option text
+        if correct_ans.upper() in ("A", "B", "C", "D") and len(options) >= ord(correct_ans.upper()) - 64:
+            correct_display = options[ord(correct_ans.upper()) - 65]
+        else:
+            correct_display = correct_ans
+        # Resolve user answer display (letter -> option text)
+        if user_ans and user_ans.upper() in ("A", "B", "C", "D") and len(options) >= ord(user_ans.upper()) - 64:
+            user_display = options[ord(user_ans.upper()) - 65]
+        else:
+            user_display = user_ans or "(no answer)"
+        # True/False: normalize A/B to True/False for comparison
+        if q.get("type") == "true_false" and len(options) >= 2:
+            correct_norm = "True" if str(options[0]).strip().lower() == "true" and correct_ans.upper() == "A" else "False"
+            user_norm = "True" if (user_ans and (user_ans.upper() == "A" or str(user_ans).strip().lower() == "true")) else "False"
+            is_correct = correct_norm == user_norm
+        else:
+            is_correct = user_ans and (user_ans.upper() == correct_ans.upper() or user_display == correct_display)
+        result.append({
+            "question": q.get("question", ""),
+            "type": q.get("type", "multiple_choice"),
+            "options": options,
+            "correct_answer": correct_ans,
+            "correct_display": correct_display,
+            "explanation": q.get("explanation", ""),
+            "user_answer": user_ans,
+            "user_display": user_display,
+            "correct": bool(is_correct),
+        })
+    return {
+        "id": quiz.id,
+        "topic": quiz.topic,
+        "lesson_step": quiz.lesson_step,
+        "score": quiz.score,
+        "total_questions": len(questions),
+        "completed": quiz.completed,
+        "created_at": quiz.created_at.isoformat() if quiz.created_at else None,
+        "questions": result,
+    }
+
 
 @app.post("/send-message")
 async def send_message(

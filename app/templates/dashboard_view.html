@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EduBot Dashboard - Your Progress</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 1rem; background: #f0f2f5; color: #111; }
+        .header { margin-bottom: 1.5rem; }
+        .header h1 { margin: 0; font-size: 1.5rem; }
+        .header p { margin: 0.25rem 0 0; color: #555; font-size: 0.9rem; }
+        .kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+        .kpi { background: #fff; padding: 1rem; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+        .kpi .value { font-size: 1.75rem; font-weight: 700; color: #25D366; }
+        .kpi .label { font-size: 0.8rem; color: #666; margin-top: 0.25rem; }
+        .header-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 0.5rem; }
+        .about-dashboard-btn { padding: 0.4rem 0.75rem; font-size: 0.9rem; color: #25D366; background: transparent; border: 1px solid #25D366; border-radius: 8px; cursor: pointer; }
+        .about-dashboard-btn:hover { background: #25D366; color: #fff; }
+        .chart-card h3 { margin: 0 0 0.75rem; font-size: 1rem; color: #333; }
+        .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; }
+        @media (max-width: 700px) { .charts { grid-template-columns: 1fr; } }
+        .chart-card { background: #fff; padding: 1rem; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+        .chart-container { position: relative; height: 220px; }
+        .section h2 { font-size: 1.1rem; margin: 0 0 0.75rem; color: #333; }
+        .section { background: #fff; padding: 1rem; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-bottom: 1rem; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        th, td { padding: 0.6rem; text-align: left; border-bottom: 1px solid #eee; }
+        th { color: #666; font-weight: 600; }
+        .topic { font-weight: 500; }
+        .badge { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 6px; font-size: 0.75rem; }
+        .badge.lesson { background: #e3f2fd; color: #1565c0; }
+        .badge.quiz { background: #e8f5e9; color: #2e7d32; }
+        .quiz-review-link { color: #25D366; text-decoration: none; font-size: 0.9rem; }
+        .quiz-review-link:hover { text-decoration: underline; }
+        .improve { color: #c62828; font-weight: 500; }
+        /* Lesson parts table */
+        .lesson-parts-table { font-size: 0.9rem; }
+        .lesson-parts-table td { padding: 0.5rem 0.6rem; }
+        /* Modal */
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 1rem; }
+        .modal-overlay.visible { display: flex; }
+        .modal { background: #fff; border-radius: 12px; max-width: 560px; width: 100%; max-height: 90vh; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 8px 24px rgba(0,0,0,0.15); }
+        .modal-header { padding: 1rem 1.25rem; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+        .modal-header h3 { margin: 0; font-size: 1.1rem; }
+        .modal-close { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #666; line-height: 1; padding: 0 0.25rem; }
+        .modal-body { padding: 1rem 1.25rem; overflow-y: auto; flex: 1; }
+        .modal-q { margin-bottom: 1.25rem; padding-bottom: 1rem; border-bottom: 1px solid #eee; }
+        .modal-q:last-child { border-bottom: none; margin-bottom: 0; }
+        .modal-q h4 { margin: 0 0 0.5rem; font-size: 0.95rem; color: #333; }
+        .modal-q .options { margin: 0.25rem 0; color: #555; font-size: 0.9rem; }
+        .modal-q .your-answer { margin-top: 0.5rem; font-size: 0.9rem; }
+        .modal-q .your-answer.wrong { color: #c62828; }
+        .modal-q .your-answer.correct { color: #2e7d32; }
+        .modal-q .correct-answer { font-size: 0.9rem; color: #2e7d32; margin-top: 0.25rem; }
+        .modal-q .explanation { font-size: 0.85rem; color: #555; margin-top: 0.35rem; font-style: italic; }
+        .about-section { margin-bottom: 1rem; }
+        .about-section:last-child { margin-bottom: 0; }
+        .about-section h4 { margin: 0 0 0.35rem; font-size: 0.95rem; color: #333; }
+        .about-section p { margin: 0; font-size: 0.9rem; color: #555; line-height: 1.45; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-top">
+            <div>
+                <h1>Hi, {{ user_name }}!</h1>
+                <p>Here’s your learning progress and where you can improve.</p>
+            </div>
+            <button type="button" class="about-dashboard-btn" id="aboutDashboardBtn">About this dashboard</button>
+        </div>
+    </div>
+
+    <div class="kpis">
+        <div class="kpi">
+            <span class="value">{{ analytics.total_lessons }}</span>
+            <span class="label">Total lessons</span>
+        </div>
+        <div class="kpi">
+            <span class="value">{{ analytics.unique_topics }}</span>
+            <span class="label">Topics tried</span>
+        </div>
+        <div class="kpi">
+            <span class="value">{{ analytics.total_quizzes }}</span>
+            <span class="label">Quizzes taken</span>
+        </div>
+        <div class="kpi">
+            <span class="value">{{ analytics.average_quiz_score_pct }}%</span>
+            <span class="label">Avg quiz score</span>
+        </div>
+    </div>
+
+    <div class="charts">
+        <div class="chart-card">
+            <h3>Lessons over time</h3>
+            <div class="chart-container"><canvas id="chartLessons"></canvas></div>
+        </div>
+        <div class="chart-card">
+            <h3>Quizzes over time</h3>
+            <div class="chart-container"><canvas id="chartQuizzes"></canvas></div>
+        </div>
+    </div>
+
+    <div class="chart-card" style="margin-bottom: 1rem;">
+        <h3>Performance by topic (quiz score %)</h3>
+        <div class="chart-container" style="height: 260px;"><canvas id="chartByTopic"></canvas></div>
+    </div>
+
+    <div class="section">
+        <h2>Lesson → parts completed</h2>
+        <table class="lesson-parts-table">
+            <thead>
+                <tr><th>Topic</th><th>Parts completed</th></tr>
+            </thead>
+            <tbody>
+                {% for item in analytics.lesson_parts_by_topic %}
+                <tr>
+                    <td class="topic">{{ item.topic }}</td>
+                    <td>{{ item.parts_completed }}</td>
+                </tr>
+                {% endfor %}
+                {% if not analytics.lesson_parts_by_topic %}
+                <tr><td colspan="2" style="color:#666;">No lesson parts yet.</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>Recent lessons</h2>
+        <table>
+            <thead>
+                <tr><th>Topic</th><th>Details</th><th>Date</th></tr>
+            </thead>
+            <tbody>
+                {% for p in progress %}
+                <tr>
+                    <td class="topic">{{ p.topic }}</td>
+                    <td>{% if p.completed %}Completed{% else %}Part {{ p.lesson_step }}{% endif %}</td>
+                    <td>{{ p.created_at.strftime('%Y-%m-%d %H:%M') if p.created_at else '-' }}</td>
+                </tr>
+                {% endfor %}
+                {% if not progress %}
+                <tr><td colspan="3" style="color:#666;">No lessons yet. Start with a lesson on WhatsApp!</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>Recent quizzes</h2>
+        <table>
+            <thead>
+                <tr><th>Topic</th><th>Score</th><th>Date</th><th></th></tr>
+            </thead>
+            <tbody>
+                {% for q in quizzes %}
+                <tr>
+                    <td class="topic">{{ q.topic }}</td>
+                    <td>{% if q.completed %}{{ q.score }}/{{ q.total_questions }}{% else %}In progress{% endif %}</td>
+                    <td>{{ q.created_at.strftime('%Y-%m-%d %H:%M') if q.created_at else '-' }}</td>
+                    <td>{% if q.completed %}<a href="#" class="quiz-review-link" data-quiz-id="{{ q.id }}">Review</a>{% endif %}</td>
+                </tr>
+                {% endfor %}
+                {% if not quizzes %}
+                <tr><td colspan="4" style="color:#666;">No quizzes yet.</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    <div id="aboutModal" class="modal-overlay" aria-hidden="true">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>About this dashboard</h3>
+                <button type="button" class="modal-close" id="aboutModalClose" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="about-section">
+                    <h4>Total lessons</h4>
+                    <p>Total number of lesson parts you have started. Each part is one step of a topic (e.g. Part 1, Part 2).</p>
+                </div>
+                <div class="about-section">
+                    <h4>Topics tried</h4>
+                    <p>Number of different topics you have done at least one lesson part on (unique topics).</p>
+                </div>
+                <div class="about-section">
+                    <h4>Quizzes taken</h4>
+                    <p>Number of quizzes you have completed.</p>
+                </div>
+                <div class="about-section">
+                    <h4>Avg quiz score</h4>
+                    <p>Your average score across all completed quizzes, shown as a percentage.</p>
+                </div>
+                <div class="about-section">
+                    <h4>Lesson → parts completed</h4>
+                    <p>For each topic, how many parts you have completed.</p>
+                </div>
+                <div class="about-section">
+                    <h4>Lessons over time</h4>
+                    <p>Number of lesson parts you did on each date.</p>
+                </div>
+                <div class="about-section">
+                    <h4>Quizzes over time</h4>
+                    <p>Number of quizzes you completed on each date.</p>
+                </div>
+                <div class="about-section">
+                    <h4>Performance by topic (quiz score %)</h4>
+                    <p>Your average quiz score per topic. Focus on topics with lower scores to improve.</p>
+                </div>
+                <div class="about-section">
+                    <h4>Recent lessons</h4>
+                    <p>Your latest lesson parts. Each row is one part of a topic.</p>
+                </div>
+                <div class="about-section">
+                    <h4>Recent quizzes</h4>
+                    <p>Your latest quizzes. Click <strong>Review</strong> on a completed quiz to see the questions, your answers, and the correct answers so you can revise mistakes.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="quizModal" class="modal-overlay" aria-hidden="true">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="quizModalTitle">Quiz review</h3>
+                <button type="button" class="modal-close" id="quizModalClose" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body" id="quizModalBody"></div>
+        </div>
+    </div>
+
+    <script>
+        const analytics = {{ analytics_json | safe }};
+
+        const lessonsData = analytics.lessons_by_date || [];
+        new Chart(document.getElementById('chartLessons'), {
+            type: 'bar',
+            data: {
+                labels: lessonsData.map(d => d.date),
+                datasets: [{ label: 'Lessons', data: lessonsData.map(d => d.count), backgroundColor: 'rgba(37, 211, 102, 0.6)' }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+        });
+
+        const quizzesData = analytics.quizzes_by_date || [];
+        new Chart(document.getElementById('chartQuizzes'), {
+            type: 'bar',
+            data: {
+                labels: quizzesData.map(d => d.date),
+                datasets: [{ label: 'Quizzes', data: quizzesData.map(d => d.count), backgroundColor: 'rgba(33, 150, 243, 0.6)' }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+        });
+
+        const byTopic = analytics.quiz_score_by_topic || [];
+        new Chart(document.getElementById('chartByTopic'), {
+            type: 'bar',
+            data: {
+                labels: byTopic.map(d => d.topic),
+                datasets: [{
+                    label: 'Avg score %',
+                    data: byTopic.map(d => d.average_score_pct),
+                    backgroundColor: byTopic.map(d => d.average_score_pct < 70 ? 'rgba(198, 40, 40, 0.6)' : 'rgba(37, 211, 102, 0.6)')
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: { x: { beginAtZero: true, max: 100 } }
+            }
+        });
+
+        const modal = document.getElementById('quizModal');
+        const modalTitle = document.getElementById('quizModalTitle');
+        const modalBody = document.getElementById('quizModalBody');
+        const modalClose = document.getElementById('quizModalClose');
+
+        document.querySelectorAll('.quiz-review-link[data-quiz-id]').forEach(function(link) {
+            link.addEventListener('click', async function(e) {
+                e.preventDefault();
+                const quizId = this.getAttribute('data-quiz-id');
+                if (!quizId) return;
+                modalBody.textContent = 'Loading…';
+                modal.classList.add('visible');
+                modal.setAttribute('aria-hidden', 'false');
+                try {
+                    const r = await fetch('/me/quiz/' + quizId);
+                    if (!r.ok) { modalBody.innerHTML = '<p>Could not load quiz.</p>'; return; }
+                    const data = await r.json();
+                    modalTitle.textContent = data.topic + ' – Quiz review (Score: ' + (data.score || 0) + '/' + (data.total_questions || 0) + ')';
+                    let html = '';
+                    (data.questions || []).forEach(function(q, i) {
+                        const opts = (q.options || []).map(function(o, j) { return (String.fromCharCode(65 + j)) + ') ' + o; }).join(', ');
+                        const correctClass = q.correct ? 'correct' : 'wrong';
+                        html += '<div class="modal-q">';
+                        html += '<h4>Q' + (i + 1) + ': ' + (q.question || '') + '</h4>';
+                        if (opts) html += '<div class="options">' + opts + '</div>';
+                        html += '<div class="your-answer ' + correctClass + '">Your answer: ' + (q.user_display || q.user_answer || '—') + '</div>';
+                        if (!q.correct) html += '<div class="correct-answer">Correct: ' + (q.correct_display || '') + '</div>';
+                        if (q.explanation) html += '<div class="explanation">' + q.explanation + '</div>';
+                        html += '</div>';
+                    });
+                    modalBody.innerHTML = html || '<p>No questions.</p>';
+                } catch (e) {
+                    modalBody.innerHTML = '<p>Failed to load quiz.</p>';
+                }
+            });
+        });
+
+        function closeQuizModal() {
+            modal.classList.remove('visible');
+            modal.setAttribute('aria-hidden', 'true');
+        }
+        modalClose.addEventListener('click', closeQuizModal);
+        modal.addEventListener('click', function(e) { if (e.target === modal) closeQuizModal(); });
+
+        var aboutModalEl = document.getElementById('aboutModal');
+        var aboutModalCloseBtn = document.getElementById('aboutModalClose');
+        document.getElementById('aboutDashboardBtn').addEventListener('click', function() {
+            aboutModalEl.classList.add('visible');
+            aboutModalEl.setAttribute('aria-hidden', 'false');
+        });
+        aboutModalCloseBtn.addEventListener('click', function() {
+            aboutModalEl.classList.remove('visible');
+            aboutModalEl.setAttribute('aria-hidden', 'true');
+        });
+        aboutModalEl.addEventListener('click', function(e) {
+            if (e.target === aboutModalEl) {
+                aboutModalEl.classList.remove('visible');
+                aboutModalEl.setAttribute('aria-hidden', 'true');
+            }
+        });
+    </script>
+</body>
+</html>

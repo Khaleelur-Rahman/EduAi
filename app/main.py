@@ -13,9 +13,6 @@ from twilio.rest import Client as TwilioClient
 
 from .db import get_db, create_tables
 from .handlers import process_whatsapp_message, process_whatsapp_audio, process_whatsapp_message_request_audio
-from .llm import initialize_llm
-from .rag import initialize_rag
-from .audio import initialize_audio_services
 
 # Temporary in-memory audio storage for TTS files
 # Format: {audio_id: {'bytes': bytes, 'content_type': str, 'created_at': datetime}}
@@ -154,30 +151,9 @@ async def lifespan(app: FastAPI):
         logger.warning("BASE_URL not set; media URLs will use webhook request host (set BASE_URL for Twilio media to work behind tunnels)")
     create_tables()
     logger.info("Database tables created/verified")
-    try:
-        logger.info("Initializing LLM model... This may take a few minutes on first run.")
-        initialize_llm()
-        logger.info("LLM model initialized successfully")
-    except Exception as e:
-        logger.error(f"Failed to initialize LLM: {str(e)}")
-        logger.warning("Application will continue but lessons may use fallback content")
-    
-    try:
-        logger.info("Initializing RAG service... This may take a few minutes on first run.")
-        initialize_rag()
-        logger.info("RAG service initialized successfully")
-    except Exception as e:
-        logger.error(f"Failed to initialize RAG: {str(e)}")
-        logger.warning("Application will continue but science lessons may not be available")
-    
-    try:
-        logger.info("Initializing audio services (STT/TTS)...")
-        initialize_audio_services()
-        logger.info("Audio services initialized successfully")
-    except Exception as e:
-        logger.error(f"Failed to initialize audio services: {str(e)}")
-        logger.warning("Application will continue but audio features may not be available")
-    
+    # Defer LLM, RAG, and audio (Whisper) init to first use so the server binds to PORT
+    # immediately and stays within 512MB on Render free tier; handlers call initialize_* when needed.
+    logger.info("LLM, RAG, and audio will initialize on first use")
     yield
     
     # Cleanup: Clear temporary media stores on shutdown

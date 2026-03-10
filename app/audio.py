@@ -25,6 +25,7 @@ class STTService:
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.use_openai = self.openai_api_key is not None
         self.local_whisper_model = None
+        self._local_whisper_tried = False  # Lazy load: only load Whisper on first use (saves memory at startup)
         
         if self.use_openai:
             try:
@@ -37,10 +38,6 @@ class STTService:
             except Exception as e:
                 logger.warning(f"Failed to initialize OpenAI client: {e}, falling back to local Whisper")
                 self.use_openai = False
-        
-        if not self.use_openai:
-            logger.info("Initializing local Whisper model (this may take a moment on first use)...")
-            self._init_local_whisper()
     
     def _init_local_whisper(self):
         """Initialize local Whisper model as fallback."""
@@ -57,6 +54,16 @@ class STTService:
         except Exception as e:
             logger.error(f"Failed to load local Whisper model: {e}")
             self.local_whisper_model = None
+
+    def _ensure_local_whisper(self):
+        """Load local Whisper on first use (lazy init for low-memory environments e.g. Render free tier)."""
+        if self._local_whisper_tried:
+            return
+        self._local_whisper_tried = True
+        if self.use_openai:
+            return
+        logger.info("Initializing local Whisper model (this may take a moment on first use)...")
+        self._init_local_whisper()
     
     def transcribe(self, audio_data: bytes, content_type: str = "audio/ogg", language: Optional[str] = None) -> Optional[str]:
         """
@@ -73,11 +80,11 @@ class STTService:
         try:
             if self.use_openai and self.openai_client:
                 return self._transcribe_openai(audio_data, content_type, language)
-            elif self.local_whisper_model:
+            self._ensure_local_whisper()
+            if self.local_whisper_model:
                 return self._transcribe_local(audio_data, content_type)
-            else:
-                logger.error("No STT service available")
-                return None
+            logger.error("No STT service available")
+            return None
         except Exception as e:
             logger.error(f"Error during transcription: {e}")
             return None
@@ -105,6 +112,7 @@ class STTService:
         except Exception as e:
             logger.error(f"OpenAI transcription failed: {e}")
             # Fallback to local if available
+            self._ensure_local_whisper()
             if self.local_whisper_model:
                 logger.info("Falling back to local Whisper...")
                 return self._transcribe_local(audio_data, content_type)

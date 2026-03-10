@@ -1,8 +1,15 @@
 import logging
+import os
 from typing import Tuple, Optional, List, Dict
 from sqlalchemy.orm import Session
 
 from .db import User, Progress, get_user_by_phone, create_user, update_user, create_progress, get_current_lesson, update_progress, get_current_quiz, get_completed_lessons, get_completed_quizzes, get_user_progress
+
+
+def _is_render_free_tier() -> bool:
+    """True when RENDER_FREE_TIER is set (prod): skip RAG to reduce memory."""
+    v = (os.getenv("RENDER_FREE_TIER") or "").strip().lower()
+    return v in ("1", "true", "yes")
 from .llm import generate_lesson
 from .rag import get_rag_lesson, initialize_rag
 from .quiz import create_quiz_from_lesson, check_quiz_answers
@@ -100,7 +107,7 @@ class MessageHandler:
         age = validate_age(message)
         
         if age is None:
-            return "Please enter a valid age (between 3 and 100). How old are you?"
+            return "Please enter a valid age (between 6 and 12). How old are you?"
         
         # Complete onboarding after collecting age in the simplified flow
         update_user(db, user, age=age, language='en', is_onboarded=True, onboarding_step='completed')
@@ -251,6 +258,17 @@ What would you like to learn about first? 🚀
             return "You don't have any lessons in progress. Start a new lesson with `/lesson <topic>`! 📚"
         
         try:
+            if _is_render_free_tier():
+                # Prod: use LLM-only continuation (no RAG) to save memory
+                follow_up_topic = f"{current_lesson.topic} - Advanced Concepts"
+                lesson_content = generate_lesson(
+                    follow_up_topic, user.age, user.name,
+                    is_continuation=True, previous_content=current_lesson.lesson_content,
+                    for_audio=for_audio, language=user.language or "en"
+                )
+                update_progress(db, current_lesson, lesson_step=current_lesson.lesson_step + 1, lesson_content=lesson_content)
+                formatted_lesson = format_for_whatsapp(lesson_content, user.age)
+                return f"*{clean_topic_title(current_lesson.topic)} - Part {current_lesson.lesson_step}*\n\n{formatted_lesson}\n\n_Type `/next` to continue, /quiz for a quiz related to this topic or `/lesson <topic>` for something new!_"
             if current_lesson.is_rag_lesson:
                 # Pass previous lesson content for conversational continuity
                 system_prompt, user_prompt, chunk_id = get_rag_lesson(
@@ -652,7 +670,10 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
         """
         Try to retrieve relevant chunks from RAG database for any topic.
         Returns (success, retrieved_chunks, chunk_id) where success indicates high confidence retrieval.
+        On Render free tier (RENDER_FREE_TIER=1), skip RAG to avoid loading sentence-transformers/ChromaDB.
         """
+        if _is_render_free_tier():
+            return False, None, None
         try:
             from .rag import initialize_rag
             initialize_rag()

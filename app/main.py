@@ -30,6 +30,13 @@ TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
 
+
+def _is_render_free_tier() -> bool:
+    """True when running on Render free tier: no background task, no RAG (reduces memory)."""
+    v = (os.getenv("RENDER_FREE_TIER") or "").strip().lower()
+    return v in ("1", "true", "yes")
+
+
 def _whatsapp_from(number: str) -> str:
     """Return 'whatsapp:+...' in E.164 for Twilio WhatsApp. Handles numbers with or without leading +."""
     if not number:
@@ -603,13 +610,24 @@ async def whatsapp_webhook(
         )
         
         if is_command:
-            # Send loading message immediately with user's language
+            if _is_render_free_tier():
+                # Prod (Render free tier): process in-request, no RAG, no background task (fits 512MB)
+                msg_lower = body_text.strip().lower()
+                if msg_lower.startswith("/audio"):
+                    response = process_whatsapp_message_request_audio(db, phone_number, body_text)
+                else:
+                    response = process_whatsapp_message(db, phone_number, body_text)
+                twiml_response = MessagingResponse()
+                if isinstance(response, dict):
+                    _apply_audio_or_fallback_response(request, phone_number, response, twiml_response)
+                else:
+                    twiml_response.message(response)
+                logger.info(f"Sending response to {phone_number} (render free tier)")
+                return Response(content=str(twiml_response), media_type="application/xml")
+            # Local / paid: loading message + background task
             _detect_command_and_send_loading(phone_number, body_text, user_language)
-            # Extract base URL before background task (request may not be available in background)
             base_url = _get_base_url(request)
-            # Process in background and send via REST API
             background_tasks.add_task(_process_message_in_background, phone_number, body_text, base_url, db)
-            # Return empty TwiML immediately so webhook responds fast
             return Response(content=str(MessagingResponse()), media_type="application/xml")
         
         if body_text.strip().lower().startswith("join ") and TWILIO_CLIENT and TWILIO_PHONE_NUMBER:

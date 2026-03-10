@@ -21,7 +21,7 @@ safetensors>=0.4.0
 
 # RAG dependencies
 sentence-transformers>=2.2.2,<3.0.0
-chromadb>=0.4.15
+chromadb>=0.4.15,<0.5
 pypdf>=3.0.0
 markdown>=3.5.1
 huggingface_hub>=0.16.0

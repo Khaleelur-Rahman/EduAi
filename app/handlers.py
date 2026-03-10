@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Tuple, Optional, List, Dict
 from sqlalchemy.orm import Session
 
@@ -229,7 +230,18 @@ What would you like to learn about first? 🚀
         """Show completed lessons and quiz scores."""
         lessons = get_user_progress(db, user.id, limit=10)
         completed_quizzes = get_completed_quizzes(db, user.id, limit=10)
-        return format_progress_review(lessons, completed_quizzes, language=user.language or "en")
+        dashboard_url = None
+        try:
+            from .dashboard_auth import generate_dashboard_token
+            base_url = (os.getenv("BASE_URL") or "").rstrip("/")
+            if base_url:
+                token = generate_dashboard_token(user.id, user.phone_number)
+                dashboard_url = f"{base_url}/dashboard?token={token}"
+        except Exception as e:
+            logger.debug("Dashboard link not generated: %s", e)
+        return format_progress_review(
+            lessons, completed_quizzes, language=user.language or "en", dashboard_url=dashboard_url
+        )
     
     def _handle_lesson_command(self, db: Session, user: User, message: str, for_audio: bool = False) -> str:
         topic = parse_lesson_command(message)

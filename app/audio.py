@@ -38,6 +38,14 @@ class STTService:
             except Exception as e:
                 logger.warning(f"Failed to initialize OpenAI client: {e}, falling back to local Whisper")
                 self.use_openai = False
+        # Local: load Whisper at startup. Prod (RENDER_FREE_TIER): load on first transcribe.
+        if not self.use_openai:
+            if (os.getenv("RENDER_FREE_TIER") or "").strip().lower() in ("1", "true", "yes"):
+                pass  # Lazy load in _ensure_local_whisper()
+            else:
+                logger.info("Initializing local Whisper model (this may take a moment on first use)...")
+                self._init_local_whisper()
+                self._local_whisper_tried = True
     
     def _init_local_whisper(self):
         """Initialize local Whisper model as fallback."""

@@ -244,7 +244,6 @@ What would you like to learn about first? 🚀
         
         # Try RAG retrieval first for any topic
         rag_success, retrieved_chunks, chunk_id = self._try_rag_retrieval(topic, user)
-        logger.info(f"RAG success: {rag_success}, retrieved chunks: {retrieved_chunks}, chunk_id: {chunk_id}")
         
         if rag_success:
             return self._generate_rag_lesson(db, user, topic, retrieved_chunks, chunk_id, for_audio=for_audio)

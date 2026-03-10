@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 class LLMService:
     
     def __init__(self):
-        self.model_name = os.getenv("CEREBRAS_MODEL", "qwen-3-32b")  # Use qwen-3-32b (235b deprecated)
+        self.model_name = os.getenv("CEREBRAS_MODEL", "llama3.1-8b")  # Production: llama3.1-8b or gpt-oss-120b
         self.api_key = os.getenv("CEREBRAS_API_KEY")
         self.client = None
         self.max_tokens = 1000  # Increased to ensure complete responses
@@ -202,7 +202,6 @@ Continue the lesson naturally, referencing what was just covered and building on
             
             # Check if content appears to be truncated (doesn't end with proper punctuation)
             # Allow emojis at the end, but check the text before emojis
-            import re
             # Remove trailing emojis and whitespace to check actual ending
             text_without_emojis = re.sub(r'[\s\U0001F300-\U0001F9FF]+$', '', lesson_content.rstrip())
             if lesson_content and text_without_emojis and not text_without_emojis.endswith(('.', '!', '?', ':', ';')):
@@ -240,7 +239,6 @@ Continue the lesson naturally, referencing what was just covered and building on
                         lesson_content += " " + completion
                     
                     # Ensure completion ends with punctuation (before any emojis)
-                    import re
                     text_without_emojis = re.sub(r'[\s\U0001F300-\U0001F9FF]+$', '', lesson_content.rstrip())
                     if text_without_emojis and not text_without_emojis.endswith(('.', '!', '?', ':', ';')):
                         # Add punctuation if missing

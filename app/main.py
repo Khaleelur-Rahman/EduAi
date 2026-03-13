@@ -371,6 +371,7 @@ async def root():
         "status": "healthy",
         "endpoints": {
             "webhook": "/whatsapp",
+            "ping": "/ping (keep-alive for cron)",
             "health": "/health",
             "audio": "/audio/{audio_id} (temporary TTS audio serving)",
             "image": "/image/{image_id} (temporary lesson image serving)",
@@ -862,6 +863,12 @@ def _apply_audio_or_fallback_response(request: Request, phone_number: str, respo
     else:
         if text:
             twiml_response.message(text)
+
+@app.get("/ping")
+async def ping():
+    """Lightweight keep-alive endpoint. No DB/LLM/RAG. Use with external cron every ~15 min to prevent spin-down (e.g. Render free tier)."""
+    return {"status": "ok", "ping": "pong"}
+
 
 @app.get("/health")
 async def health_check():

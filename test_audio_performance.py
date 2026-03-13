@@ -33,7 +33,7 @@ def test_parallel_tts():
     """
     
     print(f"\nTest text length: {len(test_text)} characters")
-    print(f"TTS service: {'OpenAI' if tts_service.use_openai else 'edge-tts' if tts_service.edge_tts else 'None'}")
+    print(f"TTS service: {'edge-tts' if tts_service.edge_tts else 'None'}")
     
     # Test parallel synthesis
     print("\n--- Testing parallel synthesis (max_segments=2) ---")

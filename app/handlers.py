@@ -142,6 +142,7 @@ You're all set up! Here's what I know about you:
 
 *Ready to learn? Try these commands:*
 📚 `/lesson <topic>` - Start learning any topic
+📹 `/video <topic>` - Get a short video on a topic
 ❓ `/help` - Get help and see all commands
 
 🎤 *Voice Messages:*
@@ -150,7 +151,7 @@ You can also send voice messages! Just say:
 • "next" to continue
 • "help" for help
 
-*Example:* Try typing `/lesson cells` or say "teach me about cells" in a voice message!
+*Example:* Try typing `/lesson cells` or `/video cells` or say "teach me about cells" in a voice message!
 
 What would you like to learn about first? 🚀
         """
@@ -342,6 +343,25 @@ What would you like to learn about first? 🚀
                 
                 lesson_content = lesson_content.strip()
                 lesson_content = strip_think_tags(lesson_content)
+                # Some models (e.g. gpt-oss-120b) may return empty stream; fallback to non-streaming
+                if not lesson_content:
+                    non_stream = llm_service.client.chat.completions.create(
+                        model=llm_service.model_name,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        max_completion_tokens=800,
+                        temperature=0.7,
+                        top_p=0.8,
+                        stream=False
+                    )
+                    if getattr(non_stream, "choices", None) and len(non_stream.choices) > 0:
+                        lesson_content = (getattr(non_stream.choices[0].message, "content", None) or "").strip()
+                        lesson_content = strip_think_tags(lesson_content)
+                    if not lesson_content:
+                        logger.warning("Cerebras returned no content for /next (stream and non-stream); using fallback")
+                        lesson_content = f"Here's more about {current_lesson.topic}. Keep exploring with /lesson for other topics!"
                 # Check if content exceeds Twilio's 1400 character limit
                 if len(lesson_content) > 1400:
                     logger.warning(f"Next lesson response too long ({len(lesson_content)} chars), retrying with stricter limit")
@@ -375,7 +395,8 @@ CRITICAL FORMATTING RULES:
 - Do NOT include "Try This at Home" or similar activity sections unless they directly relate to the topic
 - Focus on clear explanations and examples, not generic activities
 
-CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. Be concise but complete."""
+CRITICAL: Keep the response under 1200 characters to ensure WhatsApp delivery. Be concise but complete.
+- Include a few relevant emojis to keep it engaging (e.g. 🌱📚✨), like the first part of the lesson."""
                     if for_audio:
                         retry_system_prompt += """
 
@@ -863,9 +884,8 @@ def process_whatsapp_message_request_audio(db: Session, phone_number: str, messa
         logger.info("Skipping TTS for error response; sending as text")
         return result
     try:
-        voice = tts_service.get_voice_for_age(user.age if user.age else 10, user.language)
         age = user.age if user.age else 10
-        segments = synthesize_speech_chunked(response_text, voice, age, language=user.language)
+        segments = synthesize_speech_chunked(response_text, age_group=age, language=user.language)
         if segments:
             result["audio_segments"] = segments
             if len(segments) == 1:
@@ -878,6 +898,55 @@ def process_whatsapp_message_request_audio(db: Session, phone_number: str, messa
     except Exception as e:
         result["tts_failed"] = True
         logger.error(f"TTS failed for /audio request: {e}; text backup will be sent")
+    return result
+
+
+def process_whatsapp_message_request_video(db: Session, phone_number: str, message: str) -> dict:
+    """
+    Handle /video <topic>: generate educational video for topic via Media API, return
+    dict with text and video_bytes + video_content_type (or text only on failure).
+    """
+    from .video import generate_lesson_video
+    from .utils import clean_topic_title
+
+    msg = message.strip()
+    msg_lower = msg.lower()
+    if not msg_lower.startswith("/video"):
+        return {"text": "Use /video <topic> to get a short educational video. Example: /video cells 📹"}
+    topic = msg[6:].strip()
+    if not topic:
+        return {"text": "Please specify a topic! For example: /video cells or /video photosynthesis 📹"}
+
+    user = get_user_by_phone(db, phone_number)
+    if not user:
+        user = create_user(db, phone_number)
+    if not user.is_onboarded:
+        return {"text": "Please finish onboarding first (reply with your name and age), then try /video <topic> 📹"}
+
+    result = {"text": f"📹 Here’s your short video on {clean_topic_title(topic)}!"}
+    try:
+        out = generate_lesson_video(
+            topic,
+            language=user.language or "en",
+            age_group=user.age if user.age else 10,
+        )
+        if out:
+            video_bytes, content_type = out
+            result["video_bytes"] = video_bytes
+            result["video_content_type"] = content_type
+            logger.info(f"Generated video for {phone_number} on topic '{topic}' ({len(video_bytes)} bytes)")
+        else:
+            result["text"] = (
+                f"Sorry, I couldn’t generate a video for “{topic}” right now. "
+                "The video service may be busy. Try again in a moment or use /lesson for a text lesson! 📚"
+            )
+            logger.warning(f"Video generation returned None for topic '{topic}'")
+    except Exception as e:
+        logger.error(f"Video generation failed for topic '{topic}': {e}")
+        result["text"] = (
+            f"Sorry, something went wrong creating a video for “{topic}”. "
+            "Try again later or use /lesson for a text lesson! 📚"
+        )
     return result
 
 
@@ -1069,10 +1138,9 @@ async def process_whatsapp_audio(
         # Fallback: result['text'] is always set above — when TTS fails, caller should send text instead.
         if return_audio and user.is_onboarded:
             try:
-                voice = tts_service.get_voice_for_age(user.age if user.age else 10, user.language)
                 age = user.age if user.age else 10
-                logger.info(f"Generating chunked audio response (voice: {voice}, age: {age}, language: {user.language})...")
-                segments = synthesize_speech_chunked(response_text, voice, age, language=user.language)
+                logger.info(f"Generating chunked audio response (age: {age}, language: {user.language})...")
+                segments = synthesize_speech_chunked(response_text, age_group=age, language=user.language)
                 if segments:
                     result['audio_segments'] = segments
                     if len(segments) == 1:

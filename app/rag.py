@@ -320,7 +320,7 @@ class RAGService:
         elif age_group <= 10:
             style_guide = "Use simple language, clear examples, and everyday situations like school or home. Include some emojis and make it engaging!"
         else:
-            style_guide = "Use clear explanations with relatable examples and real-world situations. Make it interesting and educational!"
+            style_guide = "Use clear explanations with relatable examples and real-world situations. Include several relevant emojis (e.g. 🌱🔬✨📚) throughout to keep it engaging and interesting."
         
         context_parts = []
         for i, chunk in enumerate(retrieved_chunks, 1):
@@ -362,11 +362,12 @@ CRITICAL FORMATTING RULES:
 - Do not add unnecessary formatting or redundant bold markers
 
 CRITICAL COMPLETENESS REQUIREMENTS:
-- ALWAYS complete your response with proper ending punctuation (. ! ?)
+- ALWAYS complete your response with proper ending punctuation (. ! ?) BEFORE any emojis
+- If you use emojis, place them after punctuation to keep the tone engaging (match the first part of the lesson)
 - NEVER cut off mid-sentence, mid-list, or mid-thought
 - If listing items, complete the entire list before ending
 - Ensure the response is a complete, coherent continuation that can stand alone
-- End naturally with a complete sentence
+- End naturally with a complete sentence, then optional emojis
 
 Important: 
 - Base your lesson on the provided educational content. Do not make up facts that aren't in the source material.
@@ -402,7 +403,7 @@ Your goal is to create an engaging, accurate science lesson using the provided e
 Instructions:
 - Topic: {topic}
 - Age group: {age_group} years old
-- Length: Keep it concise (under 1400 characters total)
+- Length: Keep it concise (under 1200 characters) so the full lesson with emojis is not cut off on delivery.
 - Style: {style_guide}{lang_instruction}
 - Use the provided educational content as your source of information
 - Make sure all facts are accurate and age-appropriate
@@ -413,6 +414,7 @@ CRITICAL FORMATTING RULES:
 - Do NOT include "Try This at Home" or similar activity sections unless they directly relate to the topic
 - Focus on clear explanations and examples, not generic activities
 - Do not add unnecessary formatting or redundant bold markers
+- EMOJIS (required): Put 1–2 emojis in the very first line (e.g. right after the opening sentence). Put at least one emoji in the middle (e.g. after "How it works" or a key point) and one in the fun example. Use 4–8 emojis total, scattered throughout. Do NOT put all emojis only at the end—if the message is shortened, the end may be cut off. Examples: 🌱🔬✨📚💡🌞🌿
 
 CRITICAL COMPLETENESS REQUIREMENTS:
 - ALWAYS complete your response with proper ending punctuation (. ! ?) BEFORE any emojis
@@ -424,8 +426,8 @@ CRITICAL COMPLETENESS REQUIREMENTS:
 
 Important: 
 - Base your lesson on the provided educational content. Do not make up facts that aren't in the source material.
-- Keep the response under 1400 characters to ensure WhatsApp delivery.
-- ALWAYS provide a complete, finished response."""
+- Keep the response under 1200 characters to ensure WhatsApp delivery and avoid cutting off emojis.
+- ALWAYS provide a complete, finished response. Include emojis in the first line, middle, and fun example as specified above."""
             if for_audio:
                 system_prompt += """
 

@@ -62,16 +62,6 @@ EDGE_TTS_VOICES = {
     },
 }
 
-# OpenAI TTS voices (same for all languages, but we'll use language parameter)
-OPENAI_TTS_VOICES = {
-    "en": {"young": "nova", "medium": "alloy", "mature": "onyx"},
-    "es": {"young": "nova", "medium": "alloy", "mature": "onyx"},
-    "fr": {"young": "nova", "medium": "alloy", "mature": "onyx"},
-    "ms": {"young": "nova", "medium": "alloy", "mature": "onyx"},
-    "zh": {"young": "nova", "medium": "alloy", "mature": "onyx"},
-    "hi": {"young": "nova", "medium": "alloy", "mature": "onyx"},
-}
-
 
 def validate_language_code(lang_code: str) -> Optional[str]:
     """Validate and normalize language code. Returns normalized code or None."""
@@ -139,19 +129,6 @@ def get_edge_voice_for_language_age(language: str, age_group: int) -> str:
     
     return EDGE_TTS_VOICES.get(lang, EDGE_TTS_VOICES["en"]).get(age_key, "en-US-JennyNeural")
 
-
-def get_openai_voice_for_language_age(language: str, age_group: int) -> str:
-    """Get OpenAI TTS voice for language and age group."""
-    lang = language if language in OPENAI_TTS_VOICES else "en"
-    
-    if age_group <= 8:
-        age_key = "young"
-    elif age_group <= 12:
-        age_key = "medium"
-    else:
-        age_key = "mature"
-    
-    return OPENAI_TTS_VOICES.get(lang, OPENAI_TTS_VOICES["en"]).get(age_key, "alloy")
 
 
 def get_language_name(lang_code: str, native: bool = False) -> str:

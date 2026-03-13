@@ -9,10 +9,12 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+MIN_IMAGE_PROMPTS = 2
+
 class LLMService:
     
     def __init__(self):
-        self.model_name = os.getenv("CEREBRAS_MODEL", "llama3.1-8b")  # Production: llama3.1-8b or gpt-oss-120b
+        self.model_name = os.getenv("CEREBRAS_MODEL", "gpt-oss-120b")  # Cerebras Cloud production model
         self.api_key = os.getenv("CEREBRAS_API_KEY")
         self.client = None
         self.max_tokens = 1000  # Increased to ensure complete responses
@@ -37,24 +39,18 @@ class LLMService:
             test_response = self.client.chat.completions.create(
                 model=self.model_name,
                 messages=[
-                    {"role": "user", "content": "Hello, can you respond with just 'OK'?"}
+                    {"role": "user", "content": "Reply with only the word OK."}
                 ],
                 max_completion_tokens=10,
                 temperature=0.1,
                 top_p=0.8,
-                stream=True
+                stream=False
             )
-            
-            response_content = ""
-            for chunk in test_response:
-                if chunk.choices[0].delta.content:
-                    response_content += chunk.choices[0].delta.content
-            
-            if response_content.strip():
-                logger.info(f"Cerebras connection successful: {response_content.strip()}")
-                self._initialized = True
-            else:
+            if not getattr(test_response, "choices", None) or len(test_response.choices) == 0:
                 raise Exception("No response from Cerebras API")
+            response_content = (getattr(test_response.choices[0].message, "content", None) or "").strip()
+            logger.info("Cerebras connection successful: %s", response_content or "(ok)")
+            self._initialized = True
                 
         except Exception as e:
             logger.error(f"Failed to initialize Cerebras client: {str(e)}")
@@ -279,18 +275,186 @@ Continue the lesson naturally, referencing what was just covered and building on
             logger.error(f"Failed to generate lesson with Cerebras: {str(e)}")
             logger.info(f"Falling back to predefined lesson for topic: {topic}")
             return self._get_fallback_lesson(topic, age_group)
-    
+
+    def generate_video_script(
+        self, topic: str, age_group: int = 10, num_images: int = 4, language: str = "en"
+    ) -> dict:
+        """
+        Generate a narration script and matching image prompts for the hybrid video pipeline.
+        Narration is in the requested language; image prompts stay in English for model compatibility.
+        """
+        t = topic.strip()
+
+        narration = ""
+        for attempt in range(3):
+            narration = self._generate_narration_text(t, age_group, language)
+            word_count = self._word_count_for_narration(narration, language)
+            if narration and word_count >= 40:
+                break
+            logger.info("Narration attempt %d for '%s': %d words, retrying", attempt + 1, t, word_count)
+        if not narration or self._word_count_for_narration(narration, language) < 40:
+            logger.info("Video narration for '%s': using fallback", topic)
+            return self._video_script_fallback(topic, num_images, language)
+
+        image_prompts = self._generate_image_prompts(t, num_images)
+        if len(image_prompts) < MIN_IMAGE_PROMPTS:
+            logger.info("Only %d image prompts for '%s', using defaults", len(image_prompts), t)
+            image_prompts = self._default_image_prompts(t, num_images)
+
+        logger.info("Video script for '%s' (%s): narration %d chars, %d image prompts",
+                     topic, language, len(narration), len(image_prompts))
+        return {"narration": narration, "image_prompts": image_prompts}
+
+    def _word_count_for_narration(self, text: str, language: str) -> int:
+        """Approximate word count for timing; use char-based for languages without spaces."""
+        if not text or not text.strip():
+            return 0
+        if language in ("zh", "ja", "ko", "hi", "th"):
+            return max(1, len(text.strip()) // 3)
+        return len(text.strip().split())
+
+    def _generate_narration_text(self, topic_title: str, age_group: int, language: str = "en") -> str:
+        """Generate plain-text narration via Cerebras streaming in the requested language."""
+        if not (self._initialized or self._try_initialize()):
+            return ""
+        lang_instruction = ""
+        if language and language != "en":
+            from .language import get_language_name
+            lang_name = get_language_name(language, native=True)
+            lang_instruction = f" Write the ENTIRE narration in {lang_name} ({language.upper()}). No English."
+        system = (
+            "You write short voiceover scripts for educational videos. "
+            "Output ONLY the narration text, no titles or labels. "
+            "Rules: Exactly 4 to 6 short sentences. Include 2 to 3 concrete facts and one simple example. "
+            "Length: about 20 to 30 seconds when read aloud (roughly 60-80 words). "
+            "Plain prose, written to be read aloud. No bullet points, no markdown. "
+            "Do not include <think>, reasoning, or any text that is not the spoken narration."
+            + lang_instruction
+        )
+        user = (
+            f'Write the voiceover for a short educational video about "{topic_title}". '
+            f"Audience: {age_group} years old. "
+            "Include 2-3 concrete facts and one simple example. "
+            "Output only the narration, nothing else."
+        )
+        if language and language != "en":
+            from .language import get_language_name
+            lang_name = get_language_name(language, native=True)
+            user += f" Write the narration entirely in {lang_name}."
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                max_completion_tokens=self.max_tokens,
+                temperature=0.7,
+                top_p=0.8,
+                stream=True,
+            )
+            raw = ""
+            for chunk in response:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    raw += chunk.choices[0].delta.content
+            text = re.sub(r'<think>.*?</think>', '', raw, flags=re.DOTALL | re.IGNORECASE).strip()
+            if text and len(text) > 30:
+                words = text.split()
+                if len(words) > 100:
+                    text = " ".join(words[:100]).rstrip()
+                    if not text.endswith((".", "!", "?")):
+                        text += "."
+                return text
+        except Exception as e:
+            logger.warning("Narration generation failed for '%s': %s", topic_title, e)
+        return ""
+
+    def _generate_image_prompts(self, topic_title: str, num_images: int) -> list:
+        """Generate image prompts via Cerebras streaming, one per line."""
+        if not (self._initialized or self._try_initialize()):
+            return []
+        system = (
+            "You write image generation prompts for Stable Diffusion XL. "
+            f"Output exactly {num_images} prompts, one per line, numbered 1. 2. 3. 4. "
+            "Each prompt MUST describe a COMPLETELY DIFFERENT scene, subject, or perspective. "
+            "For example: 1=diagram/overview, 2=close-up of a key part, 3=real-world photo, 4=comparison/before-after. "
+            "Each prompt: 20-40 words, concrete visual scene, style keywords like 'colorful, detailed, clean'. "
+            "CRITICAL: Do NOT include any text, words, labels, letters, or writing in the image. "
+            "No markdown, no explanations, just the numbered prompts."
+        )
+        user = (
+            f'Write {num_images} DIVERSE image prompts for an educational video about "{topic_title}". '
+            "Each must show a completely different scene or angle -- no two should look similar. "
+            "Do not put any text, words, labels, or writing in the images."
+        )
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                max_completion_tokens=self.max_tokens,
+                temperature=0.7,
+                top_p=0.8,
+                stream=True,
+            )
+            raw = ""
+            for chunk in response:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    raw += chunk.choices[0].delta.content
+            text = re.sub(r'<think>.*?</think>', '', raw, flags=re.DOTALL | re.IGNORECASE).strip()
+            prompts = []
+            for line in text.split("\n"):
+                line = re.sub(r'^\d+[\.\)]\s*', '', line.strip())
+                if len(line) > 15:
+                    prompts.append(line)
+            return prompts[:num_images]
+        except Exception as e:
+            logger.warning("Image prompt generation failed for '%s': %s", topic_title, e)
+        return []
+
+    def _default_image_prompts(self, topic_title: str, num_images: int = 4) -> list:
+        """Deterministic diverse image prompts when LLM fails."""
+        return [
+            f"Wide overview diagram of {topic_title}, colorful educational illustration, clean white background, detailed",
+            f"Close-up microscopic or detailed view of {topic_title}, scientific photography style, vivid colors, sharp focus",
+            f"Real-world outdoor photograph showing {topic_title} in nature, photorealistic, golden hour lighting",
+            f"Animated cartoon style illustration explaining {topic_title}, friendly characters, bright pastel colors, simple shapes",
+        ][:num_images]
+
+    def _video_script_fallback(self, topic: str, num_images: int = 4, language: str = "en") -> dict:
+        """Static fallback when LLM is unavailable. Narration in English."""
+        t = topic.strip()
+        narration = (
+            f"Today we're going to learn about {t}. "
+            f"This is a fascinating topic that scientists have studied for many years. "
+            f"Understanding {t} helps us make sense of the world around us. "
+            "There are several key ideas we need to explore to get the full picture. "
+            "Each one builds on the last, so pay close attention. "
+            "By the end of this video, you'll have a solid understanding of how it all works."
+        )
+        return {"narration": narration, "image_prompts": self._default_image_prompts(t, num_images)}
+
+    def _try_initialize(self) -> bool:
+        """Initialize Cerebras if possible; return True if client is ready."""
+        try:
+            self.initialize()
+            return self._initialized and self.client is not None
+        except Exception:
+            return False
+
     def _create_lesson_prompt(self, topic: str, age_group: int, user_name: str = "", 
                              is_continuation: bool = False, previous_content: str = None,
                              for_audio: bool = False, language: str = "en"):
         if age_group <= 8:
-            style_guide = "Use very simple words, short sentences, and examples with toys, animals, or games"
+            style_guide = "Use very simple words, short sentences, and examples with toys, animals, or games. Use lots of relevant emojis (e.g. 🌱🔬✨) throughout to make it fun!"
         elif age_group <= 12:
-            style_guide = "Use simple language, clear examples, and everyday situations like school or home"
+            style_guide = "Use simple language, clear examples, and everyday situations like school or home. Include several relevant emojis throughout the lesson (e.g. 🌱📚💡) to keep it engaging!"
         elif age_group <= 16:
-            style_guide = "Use clear explanations with relatable examples and real-world situations"
+            style_guide = "Use clear explanations with relatable examples and real-world situations. Include some relevant emojis (e.g. 🌿🔬✨) to keep it engaging."
         else:
-            style_guide = "Use detailed explanations with comprehensive examples and professional contexts"
+            style_guide = "Use detailed explanations with comprehensive examples and professional contexts. You may add a few relevant emojis for tone."
         
         # Language instruction
         lang_instruction = ""
@@ -322,12 +486,13 @@ CRITICAL FORMATTING RULES:
 - Do NOT include "Try This at Home" or similar activity sections unless they directly relate to the topic
 - Focus on clear explanations and examples, not generic activities
 - Do not add unnecessary formatting or redundant bold markers
+- Include a few relevant emojis to keep the tone engaging and match the first part of the lesson
 
 Make sure the explanation is accurate, easy to follow, and age-appropriate.
 
 IMPORTANT: 
 - Make it conversational and connected to what the student just learned.
-- Keep the response under 1400 characters to ensure WhatsApp delivery."""
+- End with a complete sentence, then optional emojis. Keep the response under 1400 characters to ensure WhatsApp delivery."""
             if for_audio:
                 system_prompt += """
 
@@ -366,12 +531,13 @@ CRITICAL FORMATTING RULES:
 - Do NOT include "Try This at Home" or similar activity sections unless they directly relate to the topic
 - Focus on clear explanations and examples, not generic activities
 - Do not add unnecessary formatting or redundant bold markers
+- EMOJIS (required): Put 1–2 emojis in the very first line (e.g. right after the opening sentence). Put at least one emoji in the middle (e.g. after "How it works" or a key point) and one in the fun example. Use 4–8 emojis total, scattered throughout. Do NOT put all emojis only at the end—if the message is shortened, the end may be cut off. Examples: 🌱🔬✨📚💡🌞🌿
 
 Make sure the explanation is accurate, easy to follow, and age-appropriate.
 
 CRITICAL COMPLETENESS REQUIREMENTS:
 - ALWAYS complete your response with proper ending punctuation (. ! ?) BEFORE any emojis
-- If you use emojis at the end, place them AFTER the final punctuation mark
+- If you use emojis, place them AFTER the final punctuation mark
 - NEVER cut off mid-sentence, mid-list, or mid-thought
 - If listing items, complete the entire list before ending
 - Ensure the response is a complete, coherent lesson that can stand alone
@@ -380,7 +546,7 @@ CRITICAL COMPLETENESS REQUIREMENTS:
 IMPORTANT: 
 - Focus only on teaching the topic. Do not introduce yourself or respond to greetings. Start directly with the lesson content.
 - Keep the response under 1400 characters to ensure WhatsApp delivery.
-- ALWAYS provide a complete, finished response."""
+- ALWAYS provide a complete, finished response. Include several emojis as specified above."""
             if for_audio:
                 system_prompt += """
 
@@ -519,6 +685,14 @@ def generate_lesson(topic: str, age_group: int, user_name: str = "",
                                       is_continuation=is_continuation, 
                                       previous_content=previous_content,
                                       for_audio=for_audio, language=language)
+
+
+def generate_video_script(
+    topic: str, age_group: int = 10, num_images: int = 4, language: str = "en"
+) -> dict:
+    """Generate narration + image prompts for the hybrid video pipeline. Narration in requested language."""
+    return llm_service.generate_video_script(topic, age_group, num_images, language)
+
 
 def initialize_llm():
     llm_service.initialize()

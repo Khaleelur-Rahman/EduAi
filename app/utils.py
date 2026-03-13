@@ -8,7 +8,11 @@ def strip_think_tags(text: str) -> str:
     """Remove <think>...</think> blocks from LLM output (Qwen/Cerebras thinking tokens)."""
     if not text or not text.strip():
         return text
-    return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE).strip()
+    # Remove complete <think>...</think> blocks
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    # Remove unclosed <think>... at start (e.g. if response was cut off)
+    text = re.sub(r'<think>.*', '', text, flags=re.DOTALL | re.IGNORECASE)
+    return text.strip()
 
 
 def clean_whatsapp_formatting(text: str) -> str:
@@ -65,8 +69,11 @@ def apply_whatsapp_formatting(text: str) -> str:
     for term in key_terms:
         text = re.sub(f'({term})', r'*\1*', text, flags=re.IGNORECASE)
     
-    text = re.sub(r'(Example:.*?)(\n|$)', r'_\1_\2', text, flags=re.IGNORECASE)
-    text = re.sub(r'(Practice:.*?)(\n|$)', r'_\1_\2', text, flags=re.IGNORECASE)
+    # Match "Example:" or "Practice:" only when they appear as standalone labels
+    # Require them to be at start of line, after newline, or after punctuation
+    # This avoids matching when part of phrases like "Fun example:" or "great example:"
+    text = re.sub(r'(^|\n|[.!?]\s+)(Example:.*?)(\n|$)', r'\1_\2_\3', text, flags=re.IGNORECASE | re.MULTILINE)
+    text = re.sub(r'(^|\n|[.!?]\s+)(Practice:.*?)(\n|$)', r'\1_\2_\3', text, flags=re.IGNORECASE | re.MULTILINE)
     
     return text
 
@@ -230,6 +237,8 @@ def _translate_help_message(text: str, language: str) -> str:
             "/language <code>": "/idioma <código>",
             "See your completed lessons and quiz scores": "Ver tus lecciones completadas y puntuaciones",
             "/audio <topic>": "/audio <tema>",
+            "/language <code>": "/idioma <código>",
+            "Change language (e.g. `/language es` for Spanish)": "Cambiar idioma (ej. `/idioma es` para español)",
             "/progress": "/progreso",
             'Say "Progress" for your progress': 'Di "Progreso" para ver tu progreso',
             "Show this help message": "Mostrar este mensaje de ayuda",
@@ -268,6 +277,8 @@ def _translate_help_message(text: str, language: str) -> str:
             "/language <code>": "/langue <code>",
             "See your completed lessons and quiz scores": "Voir vos leçons terminées et scores de quiz",
             "/audio <topic>": "/audio <sujet>",
+            "/language <code>": "/langue <code>",
+            "Change language (e.g. `/language es` for Spanish)": "Changer la langue (ex. `/langue es` pour espagnol)",
             "/progress": "/progression",
             'Say "Progress" for your progress': 'Dites "Progression" pour voir votre progression',
             "Show this help message": "Afficher ce message d'aide",
@@ -306,6 +317,8 @@ def _translate_help_message(text: str, language: str) -> str:
             "/language <code>": "/bahasa <kod>",
             "See your completed lessons and quiz scores": "Lihat pelajaran dan skor kuiz anda",
             "/audio <topic>": "/audio <tajuk>",
+            "/language <code>": "/bahasa <kod>",
+            "Change language (e.g. `/language es` for Spanish)": "Tukar bahasa (cth. `/bahasa es` untuk Sepanyol)",
             "/progress": "/kemajuan",
             'Say "Progress" for your progress': 'Katakan "Kemajuan" untuk kemajuan anda',
             "Show this help message": "Tunjukkan mesej bantuan ini",
@@ -344,6 +357,8 @@ def _translate_help_message(text: str, language: str) -> str:
             "/language <code>": "/语言 <代码>",
             "See your completed lessons and quiz scores": "查看你完成的课程和测验成绩",
             "/audio <topic>": "/audio <主题>",
+            "/language <code>": "/语言 <代码>",
+            "Change language (e.g. `/language es` for Spanish)": "更改语言（例如 `/语言 es` 表示西班牙语）",
             "/progress": "/进度",
             'Say "Progress" for your progress': '说"进度"查看进度',
             "Show this help message": "显示此帮助消息",
@@ -382,6 +397,8 @@ def _translate_help_message(text: str, language: str) -> str:
             "/language <code>": "/भाषा <कोड>",
             "See your completed lessons and quiz scores": "अपने पूर्ण पाठ और क्विज़ स्कोर देखें",
             "/audio <topic>": "/audio <विषय>",
+            "/language <code>": "/भाषा <कोड>",
+            "Change language (e.g. `/language es` for Spanish)": "भाषा बदलें (उदा. `/भाषा es` स्पेनिश के लिए)",
             "/progress": "/प्रगति",
             'Say "Progress" for your progress': 'प्रगति के लिए "प्रगति" कहें',
             "Show this help message": "यह सहायता संदेश दिखाएं",
@@ -430,7 +447,7 @@ def format_progress_review(lessons: list, quizzes: list, language: str = "en") -
         return f"📊 *{t['your_progress']}*\n\n{t['no_progress']}"
     lines = [f"📊 *{t['your_progress']}*", ""]
 
-    # Lessons section
+    # Lessons section - deduplicate by (topic, lesson_step)
     lines.append(f"📚 *{t['lessons']}:*")
     if not lessons:
         lines.append(f"• {t['no_lessons_yet']}")
@@ -443,7 +460,6 @@ def format_progress_review(lessons: list, quizzes: list, language: str = "en") -
             if key not in seen_lessons:
                 seen_lessons.add(key)
                 unique_lessons.append(p)
-        
         # Show only top 8 unique lessons
         for p in unique_lessons[:8]:
             title = clean_topic_title(p.topic)

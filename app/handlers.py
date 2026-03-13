@@ -20,9 +20,30 @@ from .utils import (
     format_progress_review
 )
 from .audio import transcribe_audio, synthesize_speech, synthesize_speech_chunked, tts_service
+from .image import generate_lesson_image
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _attach_lesson_image(result: dict, topic: str, language: str, context: str = "lesson") -> None:
+    """Generate an image for the lesson/next topic and attach to result dict. Uses a safe, short topic for the image API."""
+    lang = language or "en"
+    # Use a clean, short topic so image API succeeds (avoid long/special strings from DB)
+    image_topic = (clean_topic_title(topic).strip() if topic else "") or "lesson"
+    if len(image_topic) > 40:
+        image_topic = image_topic.split()[0] if image_topic.split() else "lesson"
+    try:
+        img_result = generate_lesson_image(image_topic, lang)
+        if img_result:
+            result["image_bytes"] = img_result[0]
+            result["image_content_type"] = img_result[1]
+            logger.info("Generated image for /%s topic '%s'", context, topic)
+        else:
+            logger.warning("Image generation failed for /%s topic '%s'; sending text only", context, topic)
+    except Exception as e:
+        logger.warning("Image generation error for /%s topic '%s': %s; sending text only", context, topic, e)
+
 
 class MessageHandler:
     
@@ -186,7 +207,7 @@ What would you like to learn about first? 🚀
     #         """
     #     return format_for_whatsapp(welcome_msg, user.age)
     
-    def _handle_regular_message(self, db: Session, user: User, message: str, for_audio: bool = False) -> str:
+    def _handle_regular_message(self, db: Session, user: User, message: str, for_audio: bool = False):
         message = message.strip()
         message_lower = message.lower()
         
@@ -237,24 +258,42 @@ What would you like to learn about first? 🚀
         completed_quizzes = get_completed_quizzes(db, user.id, limit=10)
         return format_progress_review(lessons, completed_quizzes, language=user.language or "en")
     
-    def _handle_lesson_command(self, db: Session, user: User, message: str, for_audio: bool = False) -> str:
+    def _handle_lesson_command(self, db: Session, user: User, message: str, for_audio: bool = False):
         topic = parse_lesson_command(message)
         if not topic:
-            return "Please specify a topic! For example: `/lesson cells` or `/lesson photosynthesis` 📚\n\n🎤 *Voice format:* Say \"teach me about cells\" or \"teach me about photosynthesis\""
+            error_msg = "Please specify a topic! For example: `/lesson cells` or `/lesson photosynthesis` 📚\n\n🎤 *Voice format:* Say \"teach me about cells\" or \"teach me about photosynthesis\""
+            return error_msg if for_audio else {"text": error_msg}
         
         # Try RAG retrieval first for any topic
         rag_success, retrieved_chunks, chunk_id = self._try_rag_retrieval(topic, user)
         
         if rag_success:
-            return self._generate_rag_lesson(db, user, topic, retrieved_chunks, chunk_id, for_audio=for_audio)
+            result = self._generate_rag_lesson(db, user, topic, retrieved_chunks, chunk_id, for_audio=for_audio)
         else:
-            return self._generate_base_llm_lesson(db, user, topic, for_audio=for_audio)
+            result = self._generate_base_llm_lesson(db, user, topic, for_audio=for_audio)
+        
+        # For text lessons (not audio), add image synchronously
+        if not for_audio:
+            if isinstance(result, str):
+                result = {"text": result}
+            # Generate image for the topic
+            lang = user.language if user else "en"
+            img_result = generate_lesson_image(topic, lang)
+            if img_result:
+                result["image_bytes"] = img_result[0]
+                result["image_content_type"] = img_result[1]
+                logger.info(f"Generated image for lesson topic '{topic}'")
+            else:
+                logger.warning(f"Image generation failed for topic '{topic}'; sending text only")
+        
+        return result
     
-    def _handle_next_command(self, db: Session, user: User, for_audio: bool = False) -> str:
+    def _handle_next_command(self, db: Session, user: User, for_audio: bool = False):
         current_lesson = get_current_lesson(db, user.id)
         
         if not current_lesson:
-            return "You don't have any lessons in progress. Start a new lesson with `/lesson <topic>`! 📚"
+            error_msg = "You don't have any lessons in progress. Start a new lesson with `/lesson <topic>`! 📚"
+            return error_msg if for_audio else {"text": error_msg}
         
         try:
             if _is_render_free_tier():
@@ -432,7 +471,15 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
                 
                 formatted_lesson = format_for_whatsapp(lesson_content, user.age)
                 
-                return f"*{clean_topic_title(current_lesson.topic)} - Part {current_lesson.lesson_step}*\n\n{formatted_lesson}\n\n_Type `/next` to continue, /quiz for a quiz related to this topic or `/lesson <topic>` for something new!_"
+                result_text = f"*{clean_topic_title(current_lesson.topic)} - Part {current_lesson.lesson_step}*\n\n{formatted_lesson}\n\n_Type `/next` to continue, /quiz for a quiz related to this topic or `/lesson <topic>` for something new!_"
+                
+                if for_audio:
+                    return result_text
+                
+                # For text lessons, always add image (same as /lesson)
+                result = {"text": result_text}
+                _attach_lesson_image(result, current_lesson.topic, user.language, "next")
+                return result
             
             else:
                 # Use fallback LLM approach for non-RAG lessons
@@ -446,11 +493,20 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
                 
                 formatted_lesson = format_for_whatsapp(lesson_content, user.age)
                 
-                return f"*{clean_topic_title(current_lesson.topic)} - Part {current_lesson.lesson_step}*\n\n{formatted_lesson}\n\n_Type `/next` to continue, /quiz for a quiz related to this topic or `/lesson <topic>` for something new!_"
+                result_text = f"*{clean_topic_title(current_lesson.topic)} - Part {current_lesson.lesson_step}*\n\n{formatted_lesson}\n\n_Type `/next` to continue, /quiz for a quiz related to this topic or `/lesson <topic>` for something new!_"
+                
+                if for_audio:
+                    return result_text
+                
+                # For text lessons, always add image (same as /lesson)
+                result = {"text": result_text}
+                _attach_lesson_image(result, current_lesson.topic, user.language, "next")
+                return result
         
         except Exception as e:
             logger.error(f"Failed to generate next lesson part: {str(e)}")
-            return "Sorry, I had trouble preparing the next part. Try starting a new lesson with `/lesson <topic>`! 📚"
+            error_msg = "Sorry, I had trouble preparing the next part. Try starting a new lesson with `/lesson <topic>`! 📚"
+            return error_msg if for_audio else {"text": error_msg}
     
     def _handle_general_message(self, db: Session, user: User, message: str, for_audio: bool = False) -> str:
         """Handle general messages with keyword fallback for natural speech."""
@@ -643,7 +699,15 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
             
             logger.info(f"Generated RAG lesson for user {user.phone_number} on topic: {topic}")
             
-            return f"📚 *Lesson: {clean_topic_title(topic)}*\n\n{formatted_lesson}\n\n_Type `/next` for more on this topic or `/lesson <new topic>` for something else!_"
+            result_text = f"📚 *Lesson: {clean_topic_title(topic)}*\n\n{formatted_lesson}\n\n_Type `/next` for more on this topic or `/lesson <new topic>` for something else!_"
+            
+            if for_audio:
+                return result_text
+            
+            # For text lessons, add image (same helper as /next)
+            result = {"text": result_text}
+            _attach_lesson_image(result, topic, user.language, "lesson")
+            return result
         
         except Exception as e:
             logger.error(f"Failed to generate RAG lesson for topic {topic}: {str(e)}")
@@ -659,7 +723,15 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
             
             logger.info(f"Generated base LLM lesson for user {user.phone_number} on topic: {topic}")
             
-            return f"📚 *Lesson: {clean_topic_title(topic)}*\n\n{formatted_lesson}\n\n_Type `/next` for more on this topic or `/lesson <new topic>` for something else!_"
+            result_text = f"📚 *Lesson: {clean_topic_title(topic)}*\n\n{formatted_lesson}\n\n_Type `/next` for more on this topic or `/lesson <new topic>` for something else!_"
+            
+            if for_audio:
+                return result_text
+            
+            # For text lessons, add image (same helper as /next)
+            result = {"text": result_text}
+            _attach_lesson_image(result, topic, user.language, "lesson")
+            return result
         
         except Exception as e:
             logger.error(f"Failed to generate lesson for topic {topic}: {str(e)}")
@@ -690,7 +762,6 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
             if all(chunk['similarity_score'] < self.rag_confidence_threshold for chunk in retrieved_chunks):
                 logger.info(f"Low confidence RAG retrieval for topic '{topic}' - scores: {[c['similarity_score'] for c in retrieved_chunks]}")
                 return False, retrieved_chunks, None
-            
             chunk_id = retrieved_chunks[0]['chunk_id']
             logger.info(f"High confidence RAG retrieval for topic '{topic}' - best score: {retrieved_chunks[0]['similarity_score']:.3f}")
             return True, retrieved_chunks, chunk_id
@@ -748,8 +819,9 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
 
 message_handler = MessageHandler()
 
-def process_whatsapp_message(db: Session, phone_number: str, message: str, for_audio: bool = False) -> str:
-    """Process a WhatsApp message. When for_audio is True, LLM/RAG prompts ask for spoken-style output."""
+def process_whatsapp_message(db: Session, phone_number: str, message: str, for_audio: bool = False):
+    """Process a WhatsApp message. When for_audio is True, LLM/RAG prompts ask for spoken-style output.
+    Returns str for audio mode, dict with {text, image_bytes?, image_content_type?} for text mode."""
     return message_handler.process_message(db, phone_number, message, for_audio=for_audio)
 
 

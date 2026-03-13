@@ -1,7 +1,9 @@
 import os
 import logging
+import tempfile
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Dict, Any
 from datetime import datetime, timedelta
 
@@ -20,6 +22,10 @@ from .audio import initialize_audio_services
 # Temporary in-memory audio storage for TTS files
 # Format: {audio_id: {'bytes': bytes, 'content_type': str, 'created_at': datetime}}
 _temp_audio_store: Dict[str, Dict[str, Any]] = {}
+
+# Temporary image storage: file-based so Twilio can fetch media after process restarts (e.g. reload)
+_TEMP_IMAGE_DIR: Path = Path(os.getenv("TEMP_IMAGE_DIR", tempfile.gettempdir())) / "eduai_images"
+_TEMP_IMAGE_TTL_HOURS = 1
 
 
 
@@ -84,7 +90,7 @@ def _detect_command_and_send_loading(phone_number: str, message: str, language: 
     if msg_lower.startswith("/language") or msg_lower.startswith("/lang"):
         # Don't send loading for language command
         return
-
+    
     # Detect /next command FIRST (before /lesson to avoid confusion)
     if msg_lower == "/next" or msg_lower.startswith("/next "):
         _send_loading_message(phone_number, "next", None, language)
@@ -187,6 +193,9 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Failed to initialize audio services: {str(e)}")
             logger.warning("Application will continue but audio features may not be available")
+    # Ensure temp image directory exists (file-based storage so Twilio can fetch media after reload)
+    _TEMP_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    logger.info("Temp image dir: %s", _TEMP_IMAGE_DIR)
     yield
     # Cleanup: Clear temporary media stores on shutdown
     _temp_audio_store.clear()
@@ -207,7 +216,8 @@ async def root():
         "endpoints": {
             "webhook": "/whatsapp",
             "health": "/health",
-            "audio": "/audio/{audio_id} (temporary TTS audio serving)"
+            "audio": "/audio/{audio_id} (temporary TTS audio serving)",
+            "image": "/image/{image_id} (temporary lesson image serving)"
         }
     }
 
@@ -234,12 +244,50 @@ async def serve_audio(audio_id: str, request: Request):
         content=audio_bytes,
         media_type=content_type,
         headers={
-            'Content-Disposition': f'inline; filename="lesson_{audio_id}.mp3"',
-            'Content-Length': str(len(audio_bytes)),
-            'Cache-Control': 'no-cache',
+            "Cache-Control": "no-cache"
         }
     )
 
+def _image_paths(image_id: str) -> tuple[Path, Path, Path]:
+    """Return (data path, content-type path, created-at path) for an image_id."""
+    base = _TEMP_IMAGE_DIR / image_id
+    return base.with_suffix(".dat"), base.with_suffix(".ct"), base.with_suffix(".ts")
+
+
+@app.get("/image/{image_id}")
+async def serve_image(image_id: str, request: Request):
+    """
+    Temporary endpoint to serve image files for Twilio media messages.
+    Images are stored on disk so they remain available after process restarts (e.g. reload).
+    """
+    # Sanitize: only allow UUID-like ids (alphanumeric and hyphen)
+    if not image_id.replace("-", "").isalnum() or len(image_id) > 64:
+        raise HTTPException(status_code=404, detail="Image file not found or expired")
+    dat_path, ct_path, ts_path = _image_paths(image_id)
+    if not dat_path.exists() or not ct_path.exists() or not ts_path.exists():
+        raise HTTPException(status_code=404, detail="Image file not found or expired")
+    try:
+        created_ts = float(ts_path.read_text().strip())
+    except (ValueError, OSError):
+        raise HTTPException(status_code=404, detail="Image file not found or expired")
+    if datetime.utcnow().timestamp() - created_ts > _TEMP_IMAGE_TTL_HOURS * 3600:
+        for p in (dat_path, ct_path, ts_path):
+            try:
+                p.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise HTTPException(status_code=404, detail="Image file expired")
+    content_type = ct_path.read_text().strip() or "image/jpeg"
+    image_bytes = dat_path.read_bytes()
+    return Response(
+        content=image_bytes,
+        media_type=content_type,
+        headers={
+            "Content-Disposition": f'inline; filename="lesson_{image_id}.jpg"',
+            "Content-Length": str(len(image_bytes)),
+            "Cache-Control": "no-cache",
+        },
+    )
 
 
 def _get_base_url(request: Request) -> str:
@@ -281,6 +329,34 @@ def _store_temp_audio(audio_bytes: bytes, content_type: str) -> str:
     
     logger.info(f"Stored temporary audio file: {audio_id} ({len(audio_bytes)} bytes)")
     return audio_id
+
+def _store_temp_image(image_bytes: bytes, content_type: str) -> str:
+    """Store image bytes on disk temporarily and return a unique ID.
+    File-based storage so Twilio can fetch the media URL after process restarts (e.g. reload).
+    """
+    image_id = str(uuid.uuid4())
+    dat_path, ct_path, ts_path = _image_paths(image_id)
+    try:
+        dat_path.write_bytes(image_bytes)
+        ct_path.write_text(content_type)
+        ts_path.write_text(str(datetime.utcnow().timestamp()))
+    except OSError as e:
+        logger.error("Failed to write temp image %s: %s", image_id, e)
+        raise
+    # Clean up expired image files from disk (older than TTL)
+    cutoff = datetime.utcnow().timestamp() - (_TEMP_IMAGE_TTL_HOURS * 3600)
+    for p in _TEMP_IMAGE_DIR.iterdir():
+        if p.suffix != ".ts":
+            continue
+        try:
+            if p.stat().st_mtime < cutoff:
+                base = p.stem
+                for ext in (".dat", ".ct", ".ts"):
+                    (_TEMP_IMAGE_DIR / (base + ext)).unlink(missing_ok=True)
+        except OSError:
+            pass
+    logger.info("Stored temporary image file: %s (%s bytes)", image_id, len(image_bytes))
+    return image_id
 
 
 
@@ -376,6 +452,30 @@ def _send_response_via_rest(request_or_base_url, phone_number: str, response) ->
                         TWILIO_CLIENT.messages.create(from_=from_twilio, to=to_user, body=text)
                     except:
                         pass
+        elif response.get("image_bytes"):
+            # Image (e.g. from lesson or /next command)
+            try:
+                image_id = _store_temp_image(
+                    response["image_bytes"],
+                    response.get("image_content_type", "image/jpeg"),
+                )
+                image_url = f"{base_url}/image/{image_id}"
+                msg_params = {
+                    "from_": from_twilio,
+                    "to": to_user,
+                    "media_url": [image_url],
+                }
+                if text:
+                    msg_params["body"] = text
+                TWILIO_CLIENT.messages.create(**msg_params)
+                logger.info(f"Sent image via REST: {image_url}")
+            except Exception as e:
+                logger.error(f"Error sending image via REST: {e}")
+                if text:
+                    try:
+                        TWILIO_CLIENT.messages.create(from_=from_twilio, to=to_user, body=text)
+                    except:
+                        pass
         else:
             # Plain text
             if text:
@@ -393,7 +493,7 @@ def _send_response_via_rest(request_or_base_url, phone_number: str, response) ->
             logger.error(f"Failed to send text via REST: {e}")
 
 def _apply_audio_or_fallback_response(request: Request, phone_number: str, response: dict, twiml_response) -> None:
-    """Apply dict response (from process_whatsapp_audio or process_whatsapp_message_request_audio) to twiml_response."""
+    """Apply dict response (from process_whatsapp_audio, process_whatsapp_message_request_audio, or process_whatsapp_message) to twiml_response."""
     text = response.get("text", "")
     tts_failed = response.get("tts_failed", False)
     if tts_failed and text:
@@ -402,6 +502,25 @@ def _apply_audio_or_fallback_response(request: Request, phone_number: str, respo
         else:
             twiml_response.message("Audio couldn't be generated. Here's your lesson:\n\n" + text)
         logger.info(f"TTS fallback: sent text backup ({len(text)} chars)")
+    elif response.get("image_bytes"):
+        # Image (e.g. from /image or /next command)
+        try:
+            image_id = _store_temp_image(
+                response["image_bytes"],
+                response.get("image_content_type", "image/jpeg"),
+            )
+            base_url = _get_base_url(request)
+            image_url = f"{base_url}/image/{image_id}"
+            logger.info(f"Media base URL: {base_url}")
+            msg = twiml_response.message()
+            msg.media(image_url)
+            if text:
+                msg.body(text)
+            logger.info(f"Prepared image response: {image_url}")
+        except Exception as e:
+            logger.error(f"Error preparing image response: {e}")
+            if text:
+                twiml_response.message(text)
     elif response.get("audio_segments"):
         segments = response["audio_segments"]
         try:
@@ -527,7 +646,8 @@ def _process_message_in_background(
         if msg_lower.startswith("/audio"):
             response = process_whatsapp_message_request_audio(db, phone_number, body_text)
         else:
-            response = process_whatsapp_message(db, phone_number, body_text)
+            # process_whatsapp_message now returns dict with image_bytes for text lessons
+            response = process_whatsapp_message(db, phone_number, body_text, for_audio=False)
         
         # Send response via REST API (pass base_url as string)
         _send_response_via_rest(base_url, phone_number, response)
@@ -658,13 +778,26 @@ async def whatsapp_webhook(
         if body_text.strip().lower().startswith("join ") and TWILIO_CLIENT and TWILIO_PHONE_NUMBER:
             logger.info("Detected sandbox join message. Sending proactive welcome.")
             try:
-                response_text = process_whatsapp_message(db, phone_number, body_text)
-
-                TWILIO_CLIENT.messages.create(
-                    body=response_text,
-                    from_=f"whatsapp:{TWILIO_PHONE_NUMBER}",
-                    to=f"whatsapp:{phone_number}"
-                )
+                response = process_whatsapp_message(db, phone_number, body_text, for_audio=False)
+                # Handle dict response (may contain image_bytes)
+                if isinstance(response, dict):
+                    text = response.get("text", "")
+                    if response.get("image_bytes"):
+                        # Send image with text via REST
+                        _send_response_via_rest(_get_base_url(request), phone_number, response)
+                    elif text:
+                        TWILIO_CLIENT.messages.create(
+                            body=text,
+                            from_=f"whatsapp:{TWILIO_PHONE_NUMBER}",
+                            to=f"whatsapp:{phone_number}"
+                        )
+                else:
+                    # String response (fallback)
+                    TWILIO_CLIENT.messages.create(
+                        body=str(response),
+                        from_=f"whatsapp:{TWILIO_PHONE_NUMBER}",
+                        to=f"whatsapp:{phone_number}"
+                    )
                 return Response(content=str(MessagingResponse()), media_type="application/xml")
             except Exception as send_err:
                 logger.error(f"Failed to send proactive welcome: {str(send_err)}")
@@ -674,7 +807,8 @@ async def whatsapp_webhook(
         if body_text.strip().lower().startswith("/audio"):
             response = process_whatsapp_message_request_audio(db, phone_number, body_text)
         else:
-            response = process_whatsapp_message(db, phone_number, body_text)
+            # process_whatsapp_message now returns dict with image_bytes for text lessons
+            response = process_whatsapp_message(db, phone_number, body_text, for_audio=False)
 
         twiml_response = MessagingResponse()
         if isinstance(response, dict):

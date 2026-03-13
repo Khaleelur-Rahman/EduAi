@@ -181,7 +181,10 @@ async def lifespan(app: FastAPI):
     if base_url:
         logger.info("BASE_URL set: %s (media URLs will use this)", base_url.rstrip("/"))
     else:
-        logger.warning("BASE_URL not set; media URLs will use webhook request host (set BASE_URL for Twilio media to work behind tunnels)")
+        logger.warning(
+            "BASE_URL not set. Set BASE_URL to your public URL (e.g. Cloudflare Tunnel https://xxx.trycloudflare.com) "
+            "or Twilio will get 'media failed to download' when sending images/audio/video."
+        )
     create_tables()
     logger.info("Database tables created/verified")
     if _is_render_free_tier():
@@ -483,11 +486,12 @@ def _get_base_url(request: Request) -> str:
     """Get the base URL of the server from the request.
     Supports ngrok, cloudflared, and direct access.
     Prefer BASE_URL so media URLs work when webhook is behind a different tunnel.
+    Twilio must be able to GET this URL; use a public URL (e.g. Cloudflare Tunnel) or you get 'media failed to download'.
     """
     base_url = os.getenv("BASE_URL")
     if base_url:
         base_url = base_url.rstrip("/")
-        logger.debug(f"Using BASE_URL for media: {base_url}")
+        logger.debug("Using BASE_URL for media: %s", base_url)
         return base_url
     # Fallback: construct from request (same host as webhook)
     scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
@@ -495,7 +499,13 @@ def _get_base_url(request: Request) -> str:
         scheme = "https" if request.url.port == 443 else "http"
     host = request.headers.get("x-forwarded-host") or request.headers.get("host") or "localhost:8000"
     base_url = f"{scheme}://{host}"
-    logger.info(f"Using request host for media URL: {base_url}")
+    if "localhost" in host or "127.0.0.1" in host:
+        logger.warning(
+            "Media base URL is %s — Twilio cannot reach this. Set BASE_URL to your public URL (e.g. Cloudflare Tunnel) to fix 'media failed to download'.",
+            base_url,
+        )
+    else:
+        logger.info("Using request host for media URL: %s", base_url)
     return base_url
 
 def _store_temp_audio(audio_bytes: bytes, content_type: str) -> str:
@@ -587,7 +597,14 @@ def _send_response_via_rest(request_or_base_url, phone_number: str, response) ->
         base_url = request_or_base_url
     else:
         base_url = _get_base_url(request_or_base_url)
-    
+    base_url = (base_url or "").rstrip("/")
+    # Twilio must be able to GET media URLs; localhost/127.0.0.1 cause "media failed to download"
+    if base_url and ("localhost" in base_url or "127.0.0.1" in base_url):
+        logger.warning(
+            "Sending media with base_url=%s — Twilio cannot reach this. Set BASE_URL to your public URL (e.g. Cloudflare Tunnel) in .env",
+            base_url,
+        )
+
     if isinstance(response, dict):
         text = response.get("text", "")
         tts_failed = response.get("tts_failed", False)

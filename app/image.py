@@ -54,6 +54,7 @@ _TOPIC_KEYWORDS = {
 
 
 def _ensure_under_size(image_bytes: bytes, content_type: str) -> Tuple[bytes, str]:
+    """Return image under WhatsApp 5MB limit, normalized to JPEG so Twilio gets valid Content-Type and body."""
     try:
         from PIL import Image
     except ImportError:

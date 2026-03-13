@@ -257,7 +257,18 @@ What would you like to learn about first? 🚀
         """Show completed lessons and quiz scores."""
         lessons = get_user_progress(db, user.id, limit=10)
         completed_quizzes = get_completed_quizzes(db, user.id, limit=10)
-        return format_progress_review(lessons, completed_quizzes, language=user.language or "en")
+        dashboard_url = None
+        try:
+            from .dashboard_auth import generate_dashboard_token
+            base_url = (os.getenv("BASE_URL") or "").rstrip("/")
+            if base_url:
+                token = generate_dashboard_token(user.id, user.phone_number)
+                dashboard_url = f"{base_url}/dashboard?token={token}"
+        except Exception as e:
+            logger.debug("Dashboard link not generated: %s", e)
+        return format_progress_review(
+            lessons, completed_quizzes, language=user.language or "en", dashboard_url=dashboard_url
+        )
     
     def _handle_lesson_command(self, db: Session, user: User, message: str, for_audio: bool = False):
         topic = parse_lesson_command(message)
@@ -925,11 +936,7 @@ def process_whatsapp_message_request_video(db: Session, phone_number: str, messa
 
     result = {"text": f"📹 Here’s your short video on {clean_topic_title(topic)}!"}
     try:
-        out = generate_lesson_video(
-            topic,
-            language=user.language or "en",
-            age_group=user.age if user.age else 10,
-        )
+        out = generate_lesson_video(topic, language=user.language or "en")
         if out:
             video_bytes, content_type = out
             result["video_bytes"] = video_bytes

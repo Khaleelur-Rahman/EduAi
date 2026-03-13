@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EduBot Dashboard - Sign in</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 1.5rem; background: #f0f2f5; color: #111; max-width: 420px; margin-left: auto; margin-right: auto; }
+        h1 { font-size: 1.35rem; margin: 0 0 0.5rem; }
+        p { margin: 0 0 1rem; color: #555; font-size: 0.95rem; }
+        .error { background: #ffebee; color: #c62828; padding: 0.6rem 0.75rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.9rem; }
+        .step { display: none; }
+        .step.visible { display: block; }
+        label { display: block; font-size: 0.9rem; font-weight: 500; margin-bottom: 0.35rem; color: #333; }
+        input[type="text"], input[type="tel"] { width: 100%; padding: 0.65rem 0.75rem; font-size: 1rem; border: 1px solid #ccc; border-radius: 8px; margin-bottom: 1rem; }
+        input:focus { outline: none; border-color: #25D366; }
+        button { width: 100%; padding: 0.75rem; font-size: 1rem; font-weight: 600; color: #fff; background: #25D366; border: none; border-radius: 8px; cursor: pointer; }
+        button:hover { background: #1da851; }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+        .back-link { display: inline-block; margin-top: 1rem; font-size: 0.9rem; color: #25D366; text-decoration: none; }
+        .back-link:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <h1>EduBot Dashboard</h1>
+    <p>Sign in with the WhatsApp number you use with EduBot to view your progress.</p>
+
+    {% if error %}
+    <div class="error" id="pageError">{{ error }}</div>
+    {% endif %}
+    <div class="error" id="jsError" style="display: none;"></div>
+
+    <div class="step visible" id="stepPhone">
+        <label for="phone">WhatsApp number</label>
+        <input type="tel" id="phone" name="phone" placeholder="e.g. +6581234567" value="{{ phone }}" autocomplete="tel">
+        <button type="button" id="btnRequestCode">Send code to WhatsApp</button>
+    </div>
+
+    <div class="step" id="stepCode">
+        <p>We sent a 6-digit code to your WhatsApp. Enter it below.</p>
+        <label for="code">Verification code</label>
+        <input type="text" id="code" name="code" placeholder="000000" maxlength="6" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code">
+        <button type="button" id="btnVerify">Verify and open dashboard</button>
+        <a href="#" class="back-link" id="backToPhone">Use a different number</a>
+    </div>
+
+    <script>
+        (function() {
+            var stepPhone = document.getElementById('stepPhone');
+            var stepCode = document.getElementById('stepCode');
+            var phoneInput = document.getElementById('phone');
+            var codeInput = document.getElementById('code');
+            var btnRequestCode = document.getElementById('btnRequestCode');
+            var btnVerify = document.getElementById('btnVerify');
+            var backToPhone = document.getElementById('backToPhone');
+            var jsError = document.getElementById('jsError');
+            var pageError = document.getElementById('pageError');
+
+            function showError(msg) {
+                jsError.textContent = msg;
+                jsError.style.display = msg ? 'block' : 'none';
+                if (pageError) pageError.style.display = msg ? 'none' : (pageError.textContent ? 'block' : 'none');
+            }
+
+            function setLoading(btn, loading) {
+                btn.disabled = loading;
+                btn.textContent = loading ? 'Please wait…' : (btn === btnRequestCode ? 'Send code to WhatsApp' : 'Verify and open dashboard');
+            }
+
+            btnRequestCode.addEventListener('click', function() {
+                var phone = (phoneInput.value || '').trim();
+                if (!phone || phone.length < 10) {
+                    showError('Please enter a valid WhatsApp number.');
+                    return;
+                }
+                showError('');
+                setLoading(btnRequestCode, true);
+                fetch('/dashboard/request-code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone: phone })
+                })
+                .then(function(r) {
+                    if (!r.ok) return r.json().then(function(d) { throw new Error(d.detail || r.statusText); });
+                    return r.json();
+                })
+                .then(function() {
+                    stepPhone.classList.remove('visible');
+                    stepCode.classList.add('visible');
+                    codeInput.value = '';
+                    codeInput.focus();
+                })
+                .catch(function(e) {
+                    showError(e.message || 'Could not send code. Try again.');
+                })
+                .finally(function() { setLoading(btnRequestCode, false); });
+            });
+
+            btnVerify.addEventListener('click', function() {
+                var phone = (phoneInput.value || '').trim();
+                var code = (codeInput.value || '').trim().replace(/\D/g, '');
+                if (!phone || code.length !== 6) {
+                    showError('Please enter the 6-digit code.');
+                    return;
+                }
+                showError('');
+                setLoading(btnVerify, true);
+                fetch('/dashboard/verify-code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone: phone, code: code })
+                })
+                .then(function(r) {
+                    if (!r.ok) return r.json().then(function(d) { throw new Error(d.detail || r.statusText); });
+                    return r.json();
+                })
+                .then(function(data) {
+                    if (data.redirect) window.location.href = data.redirect;
+                    else window.location.href = '/dashboard/view';
+                })
+                .catch(function(e) {
+                    showError(e.message || 'Invalid or expired code. Request a new one.');
+                })
+                .finally(function() { setLoading(btnVerify, false); });
+            });
+
+            backToPhone.addEventListener('click', function(e) {
+                e.preventDefault();
+                stepCode.classList.remove('visible');
+                stepPhone.classList.add('visible');
+                showError('');
+            });
+        })();
+    </script>
+</body>
+</html>

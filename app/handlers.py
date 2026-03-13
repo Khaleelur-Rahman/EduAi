@@ -50,7 +50,7 @@ class MessageHandler:
     
     def __init__(self):
         self.onboarding_steps = {
-            'name': 'What should I call you? 😊',
+            'name': "First, what's your *name*? Type your name below (e.g. Alex or Maria). After this quick setup you can use /help for commands. 😊",
             'age': 'How old are you? Enter a number between 6 and 12. (This helps me adjust lessons for you)',
             # 'country': 'Which country are you from?',
             # 'subjects': 'What subjects interest you? (e.g., math, science, history - separate with commas)',
@@ -82,13 +82,21 @@ class MessageHandler:
             logger.error(f"Error processing message from {phone_number}: {str(e)}")
             return "Sorry, I'm having some technical difficulties right now. Please try again in a moment! 🔧"
     
-    def _handle_onboarding(self, db: Session, user: User, message: str, is_new_user: bool = False) -> str:
-        current_step = user.onboarding_step
-        
-        if is_new_user and current_step == 'name' and not user.name:
+    def _get_name_prompt(self, with_welcome: bool = True) -> str:
+        """Return the 'what should I call you' prompt, optionally with welcome intro."""
+        if with_welcome:
             greeting = f"Welcome to your AI Tutor! {get_greeting_emoji(25)} \n\nI'm here to help you learn anything you're curious about through fun, personalized lessons!\n\n"
             return greeting + self.onboarding_steps['name']
-        
+        return self.onboarding_steps['name']
+
+    def _handle_onboarding(self, db: Session, user: User, message: str, is_new_user: bool = False) -> str:
+        current_step = user.onboarding_step
+        # Show welcome + name question when: (1) brand new user, or (2) on name step with no name yet and they sent a command
+        if current_step == 'name' and not user.name:
+            if is_new_user:
+                return self._get_name_prompt(with_welcome=True)
+            if message.strip().startswith("/"):
+                return self._get_name_prompt(with_welcome=True)
         if current_step == 'name':
             return self._process_name_step(db, user, message)
         elif current_step == 'age':
@@ -116,10 +124,11 @@ class MessageHandler:
     
     def _process_name_step(self, db: Session, user: User, message: str) -> str:
         name = message.strip()
-        
+        # Don't accept commands (e.g. /help, /lesson) as a name — ask for name first
+        if name.startswith("/"):
+            return "That's a command (like /help). Please type your *name* first — e.g. Alex or Maria — then you can use commands after setup. What should I call you? 😊"
         if len(name) < 1 or len(name) > 50:
             return "Please enter a name between 1 and 50 characters. What should I call you?"
-        
         update_user(db, user, name=name, onboarding_step='age')
         emoji = get_greeting_emoji(25)
         

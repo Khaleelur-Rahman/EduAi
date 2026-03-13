@@ -51,6 +51,12 @@ def _is_render_free_tier() -> bool:
     return v in ("1", "true", "yes")
 
 
+def _defer_rag_init() -> bool:
+    """True when RAG should init on first /lesson instead of at startup (e.g. dev for faster startup)."""
+    v = (os.getenv("DEFER_RAG_INIT") or "").strip().lower()
+    return v in ("1", "true", "yes")
+
+
 def _whatsapp_from(number: str) -> str:
     """Return 'whatsapp:+...' in E.164 for Twilio WhatsApp. Handles numbers with or without leading +."""
     if not number:
@@ -179,10 +185,10 @@ async def lifespan(app: FastAPI):
     create_tables()
     logger.info("Database tables created/verified")
     if _is_render_free_tier():
-        # Prod (Render free tier): defer init to first use so server binds quickly and fits 512MB
-        logger.info("LLM, RAG, and audio will initialize on first use (RENDER_FREE_TIER)")
+        # Prod (Render free tier): defer init to first use so server binds quickly and fits 512MB; RAG is skipped entirely
+        logger.info("LLM, RAG, and audio will initialize on first use (RENDER_FREE_TIER); RAG disabled")
     else:
-        # Local: load LLM, RAG, and audio on startup (original behavior)
+        # Local: load LLM and audio on startup; RAG at startup unless DEFER_RAG_INIT (dev = init RAG on first /lesson)
         try:
             logger.info("Initializing LLM model...")
             initialize_llm()
@@ -190,13 +196,16 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Failed to initialize LLM: {str(e)}")
             logger.warning("Application will continue but lessons may use fallback content")
-        try:
-            logger.info("Initializing RAG service...")
-            initialize_rag()
-            logger.info("RAG service initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize RAG: {str(e)}")
-            logger.warning("Application will continue but science lessons may not be available")
+        if not _defer_rag_init():
+            try:
+                logger.info("Initializing RAG service...")
+                initialize_rag()
+                logger.info("RAG service initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize RAG: {str(e)}")
+                logger.warning("Application will continue but science lessons may not be available")
+        else:
+            logger.info("RAG will initialize on first /lesson (DEFER_RAG_INIT)")
         try:
             logger.info("Initializing audio services (STT/TTS)...")
             initialize_audio_services()

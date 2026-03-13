@@ -1,5 +1,6 @@
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 from typing import Tuple, Optional, List, Dict
 from sqlalchemy.orm import Session
 
@@ -276,28 +277,23 @@ What would you like to learn about first? 🚀
             error_msg = "Please specify a topic! For example: `/lesson cells` or `/lesson photosynthesis` 📚\n\n🎤 *Voice format:* Say \"teach me about cells\" or \"teach me about photosynthesis\""
             return error_msg if for_audio else {"text": error_msg}
         
-        # Try RAG retrieval first for any topic
-        rag_success, retrieved_chunks, chunk_id = self._try_rag_retrieval(topic, user)
-        
-        if rag_success:
-            result = self._generate_rag_lesson(db, user, topic, retrieved_chunks, chunk_id, for_audio=for_audio)
+        # Try RAG retrieval first for any topic (unless LESSON_USE_RAG=0 for speed)
+        use_rag = (os.getenv("LESSON_USE_RAG", "1").strip().lower() not in ("0", "false", "no"))
+        rag_success = False
+        if use_rag:
+            rag_success, retrieved_chunks, chunk_id = self._try_rag_retrieval(topic, user)
+            if rag_success:
+                result = self._generate_rag_lesson(db, user, topic, retrieved_chunks, chunk_id, for_audio=for_audio)
+            else:
+                result = self._generate_base_llm_lesson(db, user, topic, for_audio=for_audio)
         else:
             result = self._generate_base_llm_lesson(db, user, topic, for_audio=for_audio)
         
-        # For text lessons (not audio), add image synchronously
-        if not for_audio:
-            if isinstance(result, str):
-                result = {"text": result}
-            # Generate image for the topic
-            lang = user.language if user else "en"
-            img_result = generate_lesson_image(topic, lang)
-            if img_result:
-                result["image_bytes"] = img_result[0]
-                result["image_content_type"] = img_result[1]
-                logger.info(f"Generated image for lesson topic '{topic}'")
-            else:
-                logger.warning(f"Image generation failed for topic '{topic}'; sending text only")
-        
+        # Ensure result is a dict for text lessons (image already attached inside _generate_* when not for_audio)
+        if not for_audio and isinstance(result, str):
+            result = {"text": result}
+        if not for_audio and result.get("image_bytes") is None:
+            logger.warning("Image generation failed for topic '%s'; sending text only", topic)
         return result
     
     def _handle_next_command(self, db: Session, user: User, for_audio: bool = False):
@@ -587,8 +583,15 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
         return format_for_whatsapp(response, user.age)
     
     def _generate_rag_lesson(self, db: Session, user: User, topic: str, retrieved_chunks: List[Dict], chunk_id: str, for_audio: bool = False) -> str:
-        """Generate a lesson using RAG-retrieved content."""
+        """Generate a lesson using RAG-retrieved content. Image is generated in parallel with the LLM call."""
+        pool = None
         try:
+            image_topic = (clean_topic_title(topic).strip() if topic else "") or "lesson"
+            if len(image_topic) > 40:
+                image_topic = image_topic.split()[0] if image_topic.split() else "lesson"
+            lang = user.language or "en"
+            pool = ThreadPoolExecutor(max_workers=1)
+            future_img = pool.submit(generate_lesson_image, image_topic, lang)
             from .rag import rag_service
             system_prompt, user_prompt = rag_service.create_rag_lesson_prompt(
                 topic, retrieved_chunks, user.age, user.name, for_audio=for_audio, language=user.language
@@ -735,36 +738,62 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
             
             if for_audio:
                 return result_text
-            
-            # For text lessons, add image (same helper as /next)
+
             result = {"text": result_text}
-            _attach_lesson_image(result, topic, user.language, "lesson")
+            try:
+                img_result = future_img.result(timeout=55)
+                if img_result:
+                    result["image_bytes"] = img_result[0]
+                    result["image_content_type"] = img_result[1]
+                    logger.info("Generated image for /lesson topic '%s'", topic)
+                else:
+                    logger.warning("Image generation failed for /lesson topic '%s'; sending text only", topic)
+            except Exception as e:
+                logger.warning("Lesson image generation failed: %s; sending text only", e)
             return result
-        
+
         except Exception as e:
             logger.error(f"Failed to generate RAG lesson for topic {topic}: {str(e)}")
             # Fallback to base LLM if RAG generation fails
             return self._generate_base_llm_lesson(db, user, topic, for_audio=for_audio)
+        finally:
+            if pool is not None:
+                pool.shutdown(wait=False)
     
     def _generate_base_llm_lesson(self, db: Session, user: User, topic: str, for_audio: bool = False) -> str:
-        """Generate a lesson using base LLM without RAG."""
+        """Generate a lesson using base LLM without RAG. Image is generated in parallel with the LLM call."""
         try:
-            lesson_content = generate_lesson(topic, user.age, user.name, for_audio=for_audio, language=user.language)
-            progress = create_progress(db, user.id, topic, lesson_content)
-            formatted_lesson = format_for_whatsapp(lesson_content, user.age)
-            
+            lang = user.language or "en"
+            image_topic = (clean_topic_title(topic).strip() if topic else "") or "lesson"
+            if len(image_topic) > 40:
+                image_topic = image_topic.split()[0] if image_topic.split() else "lesson"
+
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future_img = pool.submit(generate_lesson_image, image_topic, lang)
+                lesson_content = generate_lesson(topic, user.age, user.name, for_audio=for_audio, language=user.language)
+                progress = create_progress(db, user.id, topic, lesson_content)
+                formatted_lesson = format_for_whatsapp(lesson_content, user.age)
+
             logger.info(f"Generated base LLM lesson for user {user.phone_number} on topic: {topic}")
-            
+
             result_text = f"📚 *Lesson: {clean_topic_title(topic)}*\n\n{formatted_lesson}\n\n_Type `/next` for more on this topic or `/lesson <new topic>` for something else!_"
-            
+
             if for_audio:
                 return result_text
-            
-            # For text lessons, add image (same helper as /next)
+
             result = {"text": result_text}
-            _attach_lesson_image(result, topic, user.language, "lesson")
+            try:
+                img_result = future_img.result(timeout=55)
+                if img_result:
+                    result["image_bytes"] = img_result[0]
+                    result["image_content_type"] = img_result[1]
+                    logger.info("Generated image for /lesson topic '%s'", topic)
+                else:
+                    logger.warning("Image generation failed for /lesson topic '%s'; sending text only", topic)
+            except Exception as e:
+                logger.warning("Lesson image generation failed: %s; sending text only", e)
             return result
-        
+
         except Exception as e:
             logger.error(f"Failed to generate lesson for topic {topic}: {str(e)}")
             return f"Sorry, I had trouble creating a lesson on {topic}. Please try a different topic or try again later! 📚"

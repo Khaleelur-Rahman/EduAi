@@ -532,7 +532,7 @@ def get_loading_message(command_type: str, topic: str = None, language: str = "e
             "next": "⏳ Loading next part...",
             "quiz": "⏳ Loading quiz...",
             "progress": "⏳ Loading your progress...",
-            "video": f"⏳ Creating your video on {topic.title()}…" if topic else "⏳ Creating your video…",
+            "video": f"⏳ Creating video: {topic.title()}…" if topic else "⏳ Creating your video…",
             "default": "⏳ LOADING...",
         },
         "es": {

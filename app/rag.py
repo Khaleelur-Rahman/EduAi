@@ -64,15 +64,29 @@ class RAGService:
                 self.reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
             
             logger.info("Initializing ChromaDB...")
+            chroma_path = "./chroma_db"
             self.chroma_client = chromadb.PersistentClient(
-                path="./chroma_db",
+                path=chroma_path,
                 settings=Settings(anonymized_telemetry=False)
             )
-            
+
             try:
                 self.collection = self.chroma_client.get_collection(name=self.collection_name)
                 logger.info(f"Found existing collection: {self.collection_name}")
-            except:
+            except Exception as e:
+                err_msg = str(e).lower()
+                # ChromaDB schema mismatch (e.g. "no such column: collections.topic") when DB was created with another version
+                if "no such column" in err_msg or "collections.topic" in err_msg:
+                    logger.warning(
+                        "ChromaDB schema mismatch (existing DB from different chromadb version). "
+                        "Remove the folder %r and restart to create a fresh DB, or run: chroma migrate --path %s",
+                        chroma_path, chroma_path
+                    )
+                    raise Exception(
+                        "RAG initialization failed: ChromaDB schema mismatch. "
+                        "Delete the folder './chroma_db' and restart the app to recreate the database, "
+                        "or run: chroma migrate --path ./chroma_db"
+                    ) from e
                 self.collection = self.chroma_client.create_collection(
                     name=self.collection_name,
                     metadata={"description": "Science educational content for ages 6-12"}

@@ -12,7 +12,8 @@ alembic==1.12.1
 twilio==8.10.3
 
 # AI/ML
-numpy>=2.0.2,<2.3.0
+# ChromaDB 0.4.x uses np.float_ removed in NumPy 2.0; pin to 1.x
+numpy>=1.26.0,<2.0.0
 transformers>=4.46.0
 torch==2.4.1
 torchvision==0.19.1

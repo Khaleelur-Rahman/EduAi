@@ -14,7 +14,7 @@ MIN_IMAGE_PROMPTS = 2
 class LLMService:
     
     def __init__(self):
-        self.model_name = os.getenv("CEREBRAS_MODEL", "gpt-oss-120b")  # Cerebras Cloud production model
+        self.model_name = os.getenv("CEREBRAS_MODEL", "llama3.1-8b")  # Cerebras Cloud production model
         self.api_key = os.getenv("CEREBRAS_API_KEY")
         self.client = None
         self.max_tokens = 1000  # Increased to ensure complete responses

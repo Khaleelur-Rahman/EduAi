@@ -38,6 +38,21 @@ Educational short videos for `/video <topic>`: **Cerebras narration + Cloudflare
 - **Subtitles:** burned in, synced per-sentence
 - **Images:** 3-4 per video, each shown for a group of sentences
 
+## Why `/video` often feels faster than `/lesson`
+
+The two flows use the same LLM (Cerebras) and same image service (Cloudflare/HF), but in different ways:
+
+| Aspect | `/video` | `/lesson` (with RAG) |
+|--------|----------|----------------------|
+| **LLM calls** | 2 short calls: narration (~60–80 words) + 4 image prompts (one line each) | 1 long call with large RAG context; may trigger retry + completion = up to 3 calls |
+| **Prompt size** | Small (topic + short instructions) | Large (retrieved chunks + instructions) when RAG is used |
+| **Output length** | Capped (~100 words narration, 4 lines prompts) | Up to ~1400 chars lesson text |
+| **Before LLM** | None | RAG: embedding + ChromaDB query (adds latency) |
+| **After LLM** | 4 images + TTS in **parallel** (ThreadPoolExecutor) | 1 image **after** lesson (was sequential; now parallel) |
+| **Image count** | 4 (same API, parallel) | 1 (same API) |
+
+**When RAG is initialized:** Local (default): RAG at app startup. Dev: set `DEFER_RAG_INIT=1` so RAG loads on first `/lesson`. Render (`RENDER_FREE_TIER=1`): RAG not used.
+
 ## Limitations
 
 - Languages: same as bot (en, es, fr, ms, zh, hi). Unsupported language falls back to English.

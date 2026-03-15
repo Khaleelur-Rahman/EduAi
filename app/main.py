@@ -137,8 +137,9 @@ def _detect_command_and_send_loading(phone_number: str, message: str, language: 
         _send_loading_message(phone_number, "video", topic or None, language)
         return
     
-    # Detect /progress and /review commands (no loading message)
+    # Detect /progress and /review commands
     if msg_lower.startswith("/progress") or msg_lower.startswith("/review"):
+        _send_loading_message(phone_number, "progress", None, language)
         return
     
     # Detect voice-friendly formats
@@ -164,7 +165,7 @@ def _detect_command_and_send_loading(phone_number: str, message: str, language: 
         return
     
     if msg_lower.startswith("progress") or msg_lower.startswith("review"):
-        # No loading message for progress
+        _send_loading_message(phone_number, "progress", None, language)
         return
 
 if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER]):
@@ -860,6 +861,34 @@ def _apply_audio_or_fallback_response(request: Request, phone_number: str, respo
             logger.error(f"Error preparing audio response: {e}")
             if text:
                 twiml_response.message(text)
+    elif response.get("video_url"):
+        try:
+            msg = twiml_response.message()
+            msg.media(response["video_url"])
+            if text:
+                msg.body(text)
+            logger.info("Prepared video response (video_url)")
+        except Exception as e:
+            logger.error(f"Error preparing video response: {e}")
+            if text:
+                twiml_response.message(text)
+    elif response.get("video_bytes"):
+        try:
+            video_id = _store_temp_video(
+                response["video_bytes"],
+                response.get("video_content_type", "video/mp4"),
+            )
+            base_url = _get_base_url(request)
+            video_url = f"{base_url}/video/{video_id}"
+            msg = twiml_response.message()
+            msg.media(video_url)
+            if text:
+                msg.body(text)
+            logger.info(f"Prepared video response: {video_url}")
+        except Exception as e:
+            logger.error(f"Error preparing video response: {e}")
+            if text:
+                twiml_response.message(text)
     else:
         if text:
             twiml_response.message(text)
@@ -1047,10 +1076,13 @@ async def whatsapp_webhook(
         
         if is_command:
             if _is_render_free_tier():
-                # Prod (Render free tier): process in-request, no RAG, no background task (fits 512MB)
+                # Prod (Render free tier): send loading message first, then process in-request (no background task)
+                _detect_command_and_send_loading(phone_number, body_text, user_language)
                 msg_lower = body_text.strip().lower()
                 if msg_lower.startswith("/audio"):
                     response = process_whatsapp_message_request_audio(db, phone_number, body_text)
+                elif msg_lower.startswith("/video"):
+                    response = process_whatsapp_message_request_video(db, phone_number, body_text)
                 else:
                     response = process_whatsapp_message(db, phone_number, body_text)
                 twiml_response = MessagingResponse()

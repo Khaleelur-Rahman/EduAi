@@ -264,7 +264,7 @@ What would you like to learn about first? 🚀
         return get_help_message(user.age, user.language)
     
     def _handle_progress_review(self, db: Session, user: User) -> str:
-        """Show completed lessons and quiz scores."""
+        """Show completed lessons and quiz scores. Include dashboard link when BASE_URL and DASHBOARD_SECRET are set."""
         lessons = get_user_progress(db, user.id, limit=10)
         completed_quizzes = get_completed_quizzes(db, user.id, limit=10)
         dashboard_url = None
@@ -274,8 +274,11 @@ What would you like to learn about first? 🚀
             if base_url:
                 token = generate_dashboard_token(user.id, user.phone_number)
                 dashboard_url = f"{base_url}/dashboard?token={token}"
+                logger.info("Dashboard link included in /progress for user %s", user.phone_number)
+            else:
+                logger.warning("BASE_URL not set; dashboard link omitted from /progress")
         except Exception as e:
-            logger.debug("Dashboard link not generated: %s", e)
+            logger.warning("Dashboard link not generated for /progress (set DASHBOARD_SECRET and BASE_URL): %s", e)
         return format_progress_review(
             lessons, completed_quizzes, language=user.language or "en", dashboard_url=dashboard_url
         )

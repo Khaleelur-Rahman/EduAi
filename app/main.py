@@ -1075,27 +1075,34 @@ async def whatsapp_webhook(
         )
         
         if is_command:
-            if _is_render_free_tier():
-                # Prod (Render free tier): send loading message first, then process in-request (no background task)
+            msg_lower = body_text.strip().lower()
+            # Heavy commands (video, audio, lesson, next, quiz) can take minutes — must use background
+            # task so the webhook returns before Render/Twilio timeout (~30s); result sent via REST.
+            is_heavy_command = (
+                msg_lower.startswith("/video") or
+                msg_lower.startswith("/audio") or
+                msg_lower.startswith("/lesson") or
+                msg_lower.startswith("/next") or
+                msg_lower.startswith("/quiz") or
+                msg_lower.startswith("teach me about") or
+                msg_lower.startswith("lesson ") or
+                (msg_lower.strip() == "next" or (msg_lower.startswith("next ") and len(msg_lower.split()) <= 2)) or
+                msg_lower.startswith("quiz")
+            )
+            if _is_render_free_tier() and not is_heavy_command:
+                # Fast commands only (progress, review, help, language): process in-request
                 _detect_command_and_send_loading(phone_number, body_text, user_language)
-                msg_lower = body_text.strip().lower()
-                if msg_lower.startswith("/audio"):
-                    response = process_whatsapp_message_request_audio(db, phone_number, body_text)
-                elif msg_lower.startswith("/video"):
-                    response = process_whatsapp_message_request_video(db, phone_number, body_text)
-                else:
-                    response = process_whatsapp_message(db, phone_number, body_text)
+                response = process_whatsapp_message(db, phone_number, body_text)
                 twiml_response = MessagingResponse()
                 if isinstance(response, dict):
                     _apply_audio_or_fallback_response(request, phone_number, response, twiml_response)
                 else:
                     twiml_response.message(response)
-                logger.info(f"Sending response to {phone_number} (render free tier)")
+                logger.info(f"Sending response to {phone_number} (render free tier, in-request)")
                 return Response(content=str(twiml_response), media_type="application/xml")
-            # Local / paid: loading message + background task
+            # Heavy commands (or local/paid): loading message + background task, respond via REST
             _detect_command_and_send_loading(phone_number, body_text, user_language)
             base_url = _get_base_url(request)
-            # Process in background and send via REST API (background task creates its own DB session)
             background_tasks.add_task(_process_message_in_background, phone_number, body_text, base_url)
             return Response(content=str(MessagingResponse()), media_type="application/xml")
         

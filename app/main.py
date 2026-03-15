@@ -1318,6 +1318,25 @@ async def dashboard_view(request: Request, db: Session = Depends(get_db)):
     )
 
 
+@app.post("/dashboard/progress/{progress_id}/hide")
+async def dashboard_hide_progress(progress_id: int, request: Request, db: Session = Depends(get_db)):
+    """Hide a progress entry from the dashboard (user no longer wants to see it)."""
+    session_user = _get_dashboard_user_from_request(request)
+    if not session_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    from .db import get_user_by_phone, set_progress_hidden
+    user = get_user_by_phone(db, session_user["phone"])
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    try:
+        pid = int(progress_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid progress id")
+    if set_progress_hidden(db, pid, user.id):
+        return RedirectResponse(url="/dashboard/view", status_code=303)
+    raise HTTPException(status_code=404, detail="Progress not found or not yours")
+
+
 @app.post("/dashboard/request-code")
 async def dashboard_request_code(request: Request, db: Session = Depends(get_db)):
     """Send a 6-digit code to the user's WhatsApp. Body: phone (form or JSON)."""

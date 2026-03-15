@@ -59,6 +59,15 @@
         .about-section:last-child { margin-bottom: 0; }
         .about-section h4 { margin: 0 0 0.35rem; font-size: 0.95rem; color: #333; }
         .about-section p { margin: 0; font-size: 0.9rem; color: #555; line-height: 1.45; }
+        .hide-progress-btn { font-size: 0.8rem; color: #666; background: none; border: 1px solid #ddd; border-radius: 6px; padding: 0.25rem 0.5rem; cursor: pointer; }
+        .hide-progress-btn:hover { background: #f5f5f5; color: #333; }
+        .progress-summary { font-size: 0.9rem; color: #555; margin-bottom: 1rem; }
+        .lesson-parts-extra { display: none; }
+        .lesson-parts-extra.visible { display: table-row; }
+        .recent-lessons-extra { display: none; }
+        .recent-lessons-extra.visible { display: table-row; }
+        .recent-quizzes-extra { display: none; }
+        .recent-quizzes-extra.visible { display: table-row; }
     </style>
 </head>
 <body>
@@ -72,10 +81,11 @@
         </div>
     </div>
 
+    <p class="progress-summary">You’ve done <strong>{{ analytics.unique_topics }}</strong> topic(s) and <strong>{{ analytics.total_lessons }}</strong> lesson parts. There’s no set endpoint—keep learning with /lesson and /video on WhatsApp!</p>
     <div class="kpis">
         <div class="kpi">
             <span class="value">{{ analytics.total_lessons }}</span>
-            <span class="label">Total lessons</span>
+            <span class="label">Lesson parts</span>
         </div>
         <div class="kpi">
             <span class="value">{{ analytics.unique_topics }}</span>
@@ -109,13 +119,13 @@
 
     <div class="section">
         <h2>Lesson → parts completed</h2>
-        <table class="lesson-parts-table">
+        <table class="lesson-parts-table" id="lessonPartsTable">
             <thead>
                 <tr><th>Topic</th><th>Parts completed</th></tr>
             </thead>
             <tbody>
                 {% for item in analytics.lesson_parts_by_topic %}
-                <tr>
+                <tr class="lesson-parts-row {% if loop.index > 10 %}lesson-parts-extra{% endif %}">
                     <td class="topic">{{ item.topic }}</td>
                     <td>{{ item.parts_completed }}</td>
                 </tr>
@@ -125,27 +135,43 @@
                 {% endif %}
             </tbody>
         </table>
+        {% if analytics.lesson_parts_by_topic and analytics.lesson_parts_by_topic|length > 10 %}
+        <p style="margin-top:0.75rem; margin-bottom:0;">
+            <button type="button" class="about-dashboard-btn" id="lessonPartsLoadMore">Load more ({{ analytics.lesson_parts_by_topic|length - 10 }} more)</button>
+        </p>
+        {% endif %}
     </div>
 
     <div class="section">
         <h2>Recent lessons</h2>
+        <p style="margin:0 0 0.5rem 0; font-size:0.9rem; color:#666;">You can hide a topic from this list if you no longer want to see it here.</p>
         <table>
             <thead>
-                <tr><th>Topic</th><th>Details</th><th>Date</th></tr>
+                <tr><th>Topic</th><th>Details</th><th>Date</th><th></th></tr>
             </thead>
             <tbody>
                 {% for p in progress %}
-                <tr>
+                <tr class="{% if loop.index > 10 %}recent-lessons-extra{% endif %}">
                     <td class="topic">{{ p.topic }}</td>
                     <td>{% if p.completed %}Completed{% else %}Part {{ p.lesson_step }}{% endif %}</td>
                     <td>{{ p.created_at.strftime('%Y-%m-%d %H:%M') if p.created_at else '-' }}</td>
+                    <td>
+                        <form method="post" action="/dashboard/progress/{{ p.id }}/hide" style="display:inline;">
+                            <button type="submit" class="hide-progress-btn" title="Remove from dashboard">Hide</button>
+                        </form>
+                    </td>
                 </tr>
                 {% endfor %}
                 {% if not progress %}
-                <tr><td colspan="3" style="color:#666;">No lessons yet. Start with a lesson on WhatsApp!</td></tr>
+                <tr><td colspan="4" style="color:#666;">No lessons yet. Start with a lesson on WhatsApp!</td></tr>
                 {% endif %}
             </tbody>
         </table>
+        {% if progress and progress|length > 10 %}
+        <p style="margin-top:0.75rem; margin-bottom:0;">
+            <button type="button" class="about-dashboard-btn" id="recentLessonsLoadMore">Load more ({{ progress|length - 10 }} more)</button>
+        </p>
+        {% endif %}
     </div>
 
     <div class="section">
@@ -156,7 +182,7 @@
             </thead>
             <tbody>
                 {% for q in quizzes %}
-                <tr>
+                <tr class="{% if loop.index > 10 %}recent-quizzes-extra{% endif %}">
                     <td class="topic">{{ q.topic }}</td>
                     <td>{% if q.completed %}{{ q.score }}/{{ q.total_questions }}{% else %}In progress{% endif %}</td>
                     <td>{{ q.created_at.strftime('%Y-%m-%d %H:%M') if q.created_at else '-' }}</td>
@@ -168,6 +194,11 @@
                 {% endif %}
             </tbody>
         </table>
+        {% if quizzes and quizzes|length > 10 %}
+        <p style="margin-top:0.75rem; margin-bottom:0;">
+            <button type="button" class="about-dashboard-btn" id="recentQuizzesLoadMore">Load more ({{ quizzes|length - 10 }} more)</button>
+        </p>
+        {% endif %}
     </div>
 
     <div id="aboutModal" class="modal-overlay" aria-hidden="true">
@@ -210,8 +241,12 @@
                     <p>Your average quiz score per topic. Focus on topics with lower scores to improve.</p>
                 </div>
                 <div class="about-section">
+                    <h4>No set endpoint</h4>
+                    <p>There’s no fixed number of lessons—you can keep exploring new topics with /lesson and /video on WhatsApp.</p>
+                </div>
+                <div class="about-section">
                     <h4>Recent lessons</h4>
-                    <p>Your latest lesson parts. Each row is one part of a topic.</p>
+                    <p>Your latest lesson parts. Each row is one part of a topic. Use <strong>Hide</strong> to remove a topic from this list (it stays in your history but won’t show here).</p>
                 </div>
                 <div class="about-section">
                     <h4>Recent quizzes</h4>
@@ -333,6 +368,25 @@
                 aboutModalEl.setAttribute('aria-hidden', 'true');
             }
         });
+
+        function setupLoadMore(btnId, rowClass) {
+            var btn = document.getElementById(btnId);
+            if (!btn) return;
+            var initialLabel = btn.textContent;
+            var rows = document.querySelectorAll('.' + rowClass);
+            btn.addEventListener('click', function() {
+                if (btn.textContent.indexOf('Show less') !== -1) {
+                    rows.forEach(function(r) { r.classList.remove('visible'); });
+                    btn.textContent = initialLabel;
+                } else {
+                    rows.forEach(function(r) { r.classList.add('visible'); });
+                    btn.textContent = 'Show less';
+                }
+            });
+        }
+        setupLoadMore('lessonPartsLoadMore', 'lesson-parts-extra');
+        setupLoadMore('recentLessonsLoadMore', 'recent-lessons-extra');
+        setupLoadMore('recentQuizzesLoadMore', 'recent-quizzes-extra');
     </script>
 </body>
 </html>

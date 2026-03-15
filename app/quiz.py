@@ -284,7 +284,7 @@ def create_quiz_from_lesson(db: Session, user_id: int, topic: str, age_group: in
     try:
         current_lesson = get_current_lesson(db, user_id)
         if not current_lesson:
-            return "You don't have any lessons in progress. Start a lesson with `/lesson <topic>` first! 📚", 0
+            return "You don't have any lessons in progress. Start a lesson with `/lesson <topic>` or watch a video with `/video <topic>` first! 📚", 0
         
         # Generate quiz questions from the actual lesson content sent to WhatsApp
         # This ensures questions align with what the student actually learned

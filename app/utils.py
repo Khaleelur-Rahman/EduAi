@@ -165,7 +165,7 @@ def get_help_message(age_group: int, language: str = "en") -> str:
 🤖 *EduBot Commands*
 
 📚 `/lesson <topic>` - Get a lesson on any topic. (e.g. `/lesson cells`)
-➡️ `/next` - Continue to next part of lesson
+➡️ `/next` - Continue to next part of a text or audio lesson 
 🧩 `/quiz` - Take a quiz on your current lesson
 🎤 `/audio <topic>` - Get an audio lesson (e.g. `/audio cells`)
 📹 `/video <topic>` - Get a short educational video (e.g. `/video cells`)
@@ -439,7 +439,14 @@ def _translate_help_message(text: str, language: str) -> str:
     return translated
 
 
-def format_progress_review(lessons: list, quizzes: list, language: str = "en", dashboard_url: Optional[str] = None) -> str:
+def format_progress_review(
+    lessons: list,
+    quizzes: list,
+    language: str = "en",
+    dashboard_url: Optional[str] = None,
+    unique_topics: Optional[int] = None,
+    total_parts: Optional[int] = None,
+) -> str:
     """Format progress review message for WhatsApp. lessons and quizzes are ORM objects."""
     import json
 
@@ -450,6 +457,10 @@ def format_progress_review(lessons: list, quizzes: list, language: str = "en", d
             msg += f"\n\n{t['view_dashboard']}: {dashboard_url}"
         return msg
     lines = [f"📊 *{t['your_progress']}*", ""]
+    if unique_topics is not None and total_parts is not None:
+        lines.append(t["topics_and_parts"].format(topics=unique_topics, parts=total_parts))
+        lines.append(t["no_fixed_end"])
+        lines.append("")
 
     # Lessons section - deduplicate by (topic, lesson_step)
     lines.append(f"📚 *{t['lessons']}:*")
@@ -512,14 +523,16 @@ def _get_progress_translations(language: str) -> dict:
             "no_lessons_yet": "No lessons yet",
             "no_quizzes_yet": "No quizzes yet",
             "no_progress": "No lessons or quizzes yet. Start with /lesson cells!",
-            "keep_learning": "Keep learning with /lesson <topic>!",
+            "keep_learning": "Keep learning with /lesson <topic> and /video <topic>!",
             "view_dashboard": "View your full dashboard",
+            "topics_and_parts": "You’ve done {topics} topic(s) and {parts} lesson parts.",
+            "no_fixed_end": "There’s no set endpoint—keep exploring!",
         },
-        "es": {"your_progress": "Tu progreso", "lessons": "Lecciones", "quizzes": "Cuestionarios", "completed": "completado", "no_lessons_yet": "Aún no hay lecciones", "no_quizzes_yet": "Aún no hay cuestionarios", "no_progress": "Aún no hay lecciones ni cuestionarios. ¡Empieza con /lección células!", "keep_learning": "¡Sigue aprendiendo con /lección <tema>!", "view_dashboard": "Ver tu panel completo"},
-        "fr": {"your_progress": "Votre progression", "lessons": "Leçons", "quizzes": "Quiz", "completed": "terminé", "no_lessons_yet": "Pas encore de leçons", "no_quizzes_yet": "Pas encore de quiz", "no_progress": "Pas encore de leçons ni de quiz. Commencez avec /leçon cellules !", "keep_learning": "Continuez avec /leçon <sujet> !", "view_dashboard": "Voir votre tableau de bord"},
-        "ms": {"your_progress": "Kemajuan anda", "lessons": "Pelajaran", "quizzes": "Kuiz", "completed": "siap", "no_lessons_yet": "Belum ada pelajaran", "no_quizzes_yet": "Belum ada kuiz", "no_progress": "Belum ada pelajaran atau kuiz. Mulakan dengan /pelajaran sel!", "keep_learning": "Terus belajar dengan /pelajaran <tajuk>!", "view_dashboard": "Lihat papan pemuka anda"},
-        "zh": {"your_progress": "你的进度", "lessons": "课程", "quizzes": "测验", "completed": "已完成", "no_lessons_yet": "暂无课程", "no_quizzes_yet": "暂无测验", "no_progress": "暂无课程或测验。用 /lesson 细胞 开始！", "keep_learning": "继续学习：/lesson <主题>！", "view_dashboard": "查看完整仪表板"},
-        "hi": {"your_progress": "आपकी प्रगति", "lessons": "पाठ", "quizzes": "क्विज़", "completed": "पूर्ण", "no_lessons_yet": "अभी तक कोई पाठ नहीं", "no_quizzes_yet": "अभी तक कोई क्विज़ नहीं", "no_progress": "अभी तक कोई पाठ या क्विज़ नहीं। /lesson कोशिकाएं से शुरू करें!", "keep_learning": "/lesson <विषय> से सीखते रहें!", "view_dashboard": "अपना डैशबोर्ड देखें"},
+        "es": {"your_progress": "Tu progreso", "lessons": "Lecciones", "quizzes": "Cuestionarios", "completed": "completado", "no_lessons_yet": "Aún no hay lecciones", "no_quizzes_yet": "Aún no hay cuestionarios", "no_progress": "Aún no hay lecciones ni cuestionarios. ¡Empieza con /lección células!", "keep_learning": "¡Sigue aprendiendo con /lección y /video <tema>!", "view_dashboard": "Ver tu panel completo", "topics_and_parts": "Has hecho {topics} tema(s) y {parts} partes de lección.", "no_fixed_end": "No hay un final fijo—¡sigue explorando!"},
+        "fr": {"your_progress": "Votre progression", "lessons": "Leçons", "quizzes": "Quiz", "completed": "terminé", "no_lessons_yet": "Pas encore de leçons", "no_quizzes_yet": "Pas encore de quiz", "no_progress": "Pas encore de leçons ni de quiz. Commencez avec /leçon cellules !", "keep_learning": "Continuez avec /leçon et /video <sujet> !", "view_dashboard": "Voir votre tableau de bord", "topics_and_parts": "Vous avez fait {topics} sujet(s) et {parts} parties de leçon.", "no_fixed_end": "Il n’y a pas de fin fixe—continuez à explorer !"},
+        "ms": {"your_progress": "Kemajuan anda", "lessons": "Pelajaran", "quizzes": "Kuiz", "completed": "siap", "no_lessons_yet": "Belum ada pelajaran", "no_quizzes_yet": "Belum ada kuiz", "no_progress": "Belum ada pelajaran atau kuiz. Mulakan dengan /pelajaran sel!", "keep_learning": "Terus belajar dengan /pelajaran dan /video <tajuk>!", "view_dashboard": "Lihat papan pemuka anda", "topics_and_parts": "Anda telah lakukan {topics} topik dan {parts} bahagian pelajaran.", "no_fixed_end": "Tiada penghujung tetap—terus terokai!"},
+        "zh": {"your_progress": "你的进度", "lessons": "课程", "quizzes": "测验", "completed": "已完成", "no_lessons_yet": "暂无课程", "no_quizzes_yet": "暂无测验", "no_progress": "暂无课程或测验。用 /lesson 细胞 开始！", "keep_learning": "继续学习：/lesson 和 /video <主题>！", "view_dashboard": "查看完整仪表板", "topics_and_parts": "你已学了 {topics} 个主题，{parts} 课节。", "no_fixed_end": "没有固定终点，继续探索吧！"},
+        "hi": {"your_progress": "आपकी प्रगति", "lessons": "पाठ", "quizzes": "क्विज़", "completed": "पूर्ण", "no_lessons_yet": "अभी तक कोई पाठ नहीं", "no_quizzes_yet": "अभी तक कोई क्विज़ नहीं", "no_progress": "अभी तक कोई पाठ या क्विज़ नहीं। /lesson कोशिकाएं से शुरू करें!", "keep_learning": "/lesson और /video <विषय> से सीखते रहें!", "view_dashboard": "अपना डैशबोर्ड देखें", "topics_and_parts": "आपने {topics} विषय और {parts} पाठ भाग किए।", "no_fixed_end": "कोई निश्चित अंत नहीं—खोजते रहें!"},
     }
     return translations.get(language, translations["en"])
 
@@ -532,7 +545,7 @@ def get_loading_message(command_type: str, topic: str = None, language: str = "e
             "next": "⏳ Loading next part...",
             "quiz": "⏳ Loading quiz...",
             "progress": "⏳ Loading your progress...",
-            "video": f"⏳ Creating video: {topic.title()}…" if topic else "⏳ Creating your video…",
+            "video": f"⏳ Generating video: {topic.title()}…" if topic else "⏳ Creating your video…",
             "default": "⏳ LOADING...",
         },
         "es": {

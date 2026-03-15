@@ -153,6 +153,7 @@ You're all set up! Here's what I know about you:
 *Ready to learn? Try these commands:*
 📚 `/lesson <topic>` - Start learning any topic
 📹 `/video <topic>` - Get a short video on a topic
+🎤 `/audio <topic>` - Get a short audio on a topic
 ❓ `/help` - Get help and see all commands
 
 🎤 *Voice Messages:*
@@ -265,8 +266,11 @@ What would you like to learn about first? 🚀
     
     def _handle_progress_review(self, db: Session, user: User) -> str:
         """Show completed lessons and quiz scores. Include dashboard link when BASE_URL and DASHBOARD_SECRET are set."""
-        lessons = get_user_progress(db, user.id, limit=10)
+        progress_all = get_user_progress(db, user.id, limit=500)
+        lessons = progress_all[:10]
         completed_quizzes = get_completed_quizzes(db, user.id, limit=10)
+        unique_topics = len(set(p.topic for p in progress_all))
+        total_parts = len(progress_all)
         dashboard_url = None
         try:
             from .dashboard_auth import generate_dashboard_token
@@ -280,7 +284,12 @@ What would you like to learn about first? 🚀
         except Exception as e:
             logger.warning("Dashboard link not generated for /progress (set DASHBOARD_SECRET and BASE_URL): %s", e)
         return format_progress_review(
-            lessons, completed_quizzes, language=user.language or "en", dashboard_url=dashboard_url
+            lessons,
+            completed_quizzes,
+            language=user.language or "en",
+            dashboard_url=dashboard_url,
+            unique_topics=unique_topics,
+            total_parts=total_parts,
         )
     
     def _handle_lesson_command(self, db: Session, user: User, message: str, for_audio: bool = False):
@@ -312,7 +321,7 @@ What would you like to learn about first? 🚀
         current_lesson = get_current_lesson(db, user.id)
         
         if not current_lesson:
-            error_msg = "You don't have any lessons in progress. Start a new lesson with `/lesson <topic>`! 📚"
+            error_msg = "You don't have any lessons in progress. Start a lesson with `/lesson <topic>` or watch a video with `/video <topic>` first! 📚"
             return error_msg if for_audio else {"text": error_msg}
         
         try:
@@ -849,7 +858,7 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
         try:
             current_lesson = get_current_lesson(db, user.id)
             if not current_lesson:
-                return "You don't have any lessons in progress. Start a lesson with `/lesson <topic>` first! 📚"
+                return "You don't have any lessons in progress. Start a lesson with `/lesson <topic>` or watch a video with `/video <topic>` first! 📚"
             
             quiz_text, quiz_id = create_quiz_from_lesson(db, user.id, current_lesson.topic, user.age, user.name)
             
@@ -979,9 +988,20 @@ def process_whatsapp_message_request_video(db: Session, phone_number: str, messa
     try:
         out = generate_lesson_video(topic, language=user.language or "en")
         if out:
-            video_bytes, content_type = out
+            video_bytes, content_type, narration = out
             result["video_bytes"] = video_bytes
             result["video_content_type"] = content_type
+            # Record as progress so /quiz works after watching the video
+            try:
+                create_progress(
+                    db, user.id, topic,
+                    lesson_content=narration or f"Short video lesson on {topic}.",
+                    total_steps=1,
+                    is_rag_lesson=False,
+                    chunk_id="video",
+                )
+            except Exception as prog_err:
+                logger.warning("Could not save video progress for quiz: %s", prog_err)
             logger.info(f"Generated video for {phone_number} on topic '{topic}' ({len(video_bytes)} bytes)")
         else:
             result["text"] = (

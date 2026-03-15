@@ -293,25 +293,29 @@ def _make_sentence_clip(
 
 # ---------- Final assembly ----------
 
-def _concat_clips_with_audio(clip_paths: List[str], audio_path: str, output_path: str) -> bool:
-    """Concatenate video clips and overlay audio track."""
+def _concat_clips_with_audio(
+    clip_paths: List[str], audio_path: str, output_path: str, audio_offset_seconds: float = 0.0
+) -> bool:
+    """Concatenate video clips and overlay audio track. audio_offset_seconds delays audio (e.g. for lead-in)."""
     concat_file = output_path + ".concat.txt"
     try:
         with open(concat_file, "w") as f:
             for cp in clip_paths:
                 f.write(f"file '{cp}'\n")
-        subprocess.run(
-            [
-                "ffmpeg", "-y",
-                "-f", "concat", "-safe", "0", "-i", concat_file,
-                "-i", audio_path,
-                "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
-                "-c:a", "aac", "-b:a", "128k",
-                "-movflags", "+faststart",
-                output_path,
-            ],
-            capture_output=True, timeout=180, check=True,
-        )
+        # All inputs first: concat (video), then audio (optionally delayed)
+        cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_file]
+        if audio_offset_seconds and audio_offset_seconds > 0:
+            cmd.extend(["-itsoffset", str(audio_offset_seconds), "-i", audio_path])
+        else:
+            cmd.extend(["-i", audio_path])
+        # Explicit mapping: video from input 0, audio from input 1 (avoids exit 8 with two inputs)
+        cmd.extend([
+            "-map", "0:v", "-map", "1:a",
+            "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart", "-shortest", output_path,
+        ])
+        subprocess.run(cmd, capture_output=True, timeout=180, check=True)
         return os.path.exists(output_path)
     except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         logger.error("Concat + audio merge failed: %s", e)
@@ -348,7 +352,8 @@ class VideoService:
         prompt_override: Optional[str] = None,
         language: str = "en",
         age_group: int = 10,
-    ) -> Optional[Tuple[bytes, str]]:
+    ) -> Optional[Tuple[bytes, str, str]]:
+        """Returns (video_bytes, content_type, narration_script) or None. Narration is used for quiz-after-video."""
         if not self.enabled:
             return None
         from .language import SUPPORTED_LANGUAGES
@@ -359,10 +364,11 @@ class VideoService:
 
     def _generate_hybrid_video(
         self, topic: str, language: str = "en", age_group: int = 10
-    ) -> Optional[Tuple[bytes, str]]:
+    ) -> Optional[Tuple[bytes, str, str]]:
         """
         Pipeline: LLM script (in target language) -> AI images + TTS in parallel
         -> per-sentence static clips with subtitles -> concat + audio.
+        Returns (video_bytes, content_type, narration_script) or None.
         """
         from .llm import generate_video_script
         from .image import image_service
@@ -452,8 +458,16 @@ class VideoService:
                 logger.warning("Too few clips (%d), aborting", len(clip_paths))
                 return None
 
+            # Prepend a short lead-in with the first image so the video doesn't start with a black frame
+            LEAD_IN_SECONDS = 0.35
+            lead_in_path = os.path.join(tmpdir, "lead_in.mp4")
+            if _make_sentence_clip(img_paths[0], lead_in_path, LEAD_IN_SECONDS, ""):
+                clip_paths = [lead_in_path] + clip_paths
+            else:
+                LEAD_IN_SECONDS = 0.0
+
             output_path = os.path.join(tmpdir, "output.mp4")
-            if not _concat_clips_with_audio(clip_paths, audio_path, output_path):
+            if not _concat_clips_with_audio(clip_paths, audio_path, output_path, audio_offset_seconds=LEAD_IN_SECONDS):
                 logger.error("Final concat failed")
                 return None
 
@@ -466,7 +480,7 @@ class VideoService:
                 return None
 
             logger.info("Hybrid video for '%s': %s bytes", topic, len(final))
-            return (final, "video/mp4")
+            return (final, "video/mp4", narration)
 
         except Exception as e:
             logger.error("Hybrid pipeline failed for '%s': %s", topic, e)
@@ -483,8 +497,8 @@ def generate_lesson_video(
     language: str = "en",
     age_group: int = 10,
     script_override: Optional[str] = None,
-) -> Optional[Tuple[bytes, str]]:
-    """Generate an educational video for a lesson topic in the requested language."""
+) -> Optional[Tuple[bytes, str, str]]:
+    """Generate an educational video; returns (video_bytes, content_type, narration_script) or None."""
     return video_service.generate(
         topic, prompt_override=script_override, language=language, age_group=age_group
     )

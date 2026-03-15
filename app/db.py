@@ -55,6 +55,9 @@ class Progress(Base):
     completed = Column(Boolean, default=False, nullable=False)
     score = Column(Integer, nullable=True)
     
+    # When True, progress is excluded from dashboard (user chose to hide it)
+    hidden = Column(Boolean, default=False, nullable=False)
+    
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     
@@ -116,6 +119,17 @@ def get_db() -> Generator[Session, None, None]:
 
 def create_tables():
     Base.metadata.create_all(bind=engine)
+    # Add Progress.hidden column for existing DBs (no-op if already present)
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            if "sqlite" in DATABASE_URL:
+                conn.execute(text("ALTER TABLE progress ADD COLUMN hidden INTEGER DEFAULT 0"))
+            else:
+                conn.execute(text("ALTER TABLE progress ADD COLUMN hidden BOOLEAN DEFAULT false"))
+            conn.commit()
+    except Exception:
+        pass  # Column already exists
 
 
 def get_user_by_phone(db: Session, phone_number: str) -> User:
@@ -141,8 +155,22 @@ def update_user(db: Session, user: User, **kwargs) -> User:
     return user
 
 
-def get_user_progress(db: Session, user_id: int, limit: int = 10):
-    return db.query(Progress).filter(Progress.user_id == user_id).order_by(Progress.created_at.desc()).limit(limit).all()
+def get_user_progress(db: Session, user_id: int, limit: int = 10, include_hidden: bool = False):
+    q = db.query(Progress).filter(Progress.user_id == user_id)
+    if not include_hidden:
+        q = q.filter(Progress.hidden == False)
+    return q.order_by(Progress.created_at.desc()).limit(limit).all()
+
+
+def set_progress_hidden(db: Session, progress_id: int, user_id: int) -> bool:
+    """Set progress row as hidden (remove from dashboard). Returns True if updated."""
+    row = db.query(Progress).filter(Progress.id == progress_id, Progress.user_id == user_id).first()
+    if not row:
+        return False
+    row.hidden = True
+    row.updated_at = datetime.utcnow()
+    db.commit()
+    return True
 
 
 def get_completed_lessons(db: Session, user_id: int, limit: int = 10):

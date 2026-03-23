@@ -294,13 +294,15 @@ def create_quiz_from_lesson(db: Session, user_id: int, topic: str, age_group: in
 
         logger.info(f"current lesson: {current_lesson}")
         
+        # QuizProgress.chunk_id is NOT NULL; use lesson's chunk_id or fallback for non-RAG/video lessons
+        chunk_id = current_lesson.chunk_id if current_lesson.chunk_id else "base"
         quiz = create_quiz_progress(
             db=db,
             user_id=user_id,
             lesson_id=current_lesson.id,
             topic=topic,
             lesson_step=current_lesson.lesson_step,
-            chunk_id=current_lesson.chunk_id,  # Use the lesson's chunk_id (can be None for non-RAG lessons)
+            chunk_id=chunk_id,
             questions=json.dumps(questions)
         )
         

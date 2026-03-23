@@ -47,16 +47,15 @@ class Progress(Base):
     lesson_step = Column(Integer, default=1, nullable=False)
     total_steps = Column(Integer, default=1, nullable=False)
     
-    # RAG-specific fields
-    chunk_id = Column(String(100), nullable=True)  # Track current chunk for continuation
-    is_rag_lesson = Column(Boolean, default=False, nullable=False)  # Whether this is a RAG lesson
-    rag_context = Column(Text, nullable=True)  # Store retrieved context for reference
+    # RAG lesson tracking
+    chunk_id = Column(String(100), nullable=True)  # Current chunk position for /next continuation
+    is_rag_lesson = Column(Boolean, default=False, nullable=False)
+    rag_context = Column(Text, nullable=True)
     
     completed = Column(Boolean, default=False, nullable=False)
     score = Column(Integer, nullable=True)
     
-    # When True, progress is excluded from dashboard (user chose to hide it)
-    hidden = Column(Boolean, default=False, nullable=False)
+    hidden = Column(Boolean, default=False, nullable=False)  # User hid this entry from their dashboard
     
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -79,9 +78,9 @@ class QuizProgress(Base):
     lesson_step = Column(Integer, nullable=False)
     chunk_id = Column(String(100), nullable=False)
     
-    questions = Column(Text, nullable=False)  # JSON array of questions
-    user_answers = Column(Text, nullable=True)  # JSON array of user answers
-    score = Column(Integer, nullable=True)  # Number of correct answers
+    questions = Column(Text, nullable=False)   # JSON array of question objects
+    user_answers = Column(Text, nullable=True)  # Encoded answer string, e.g. "1A 2B 3True"
+    score = Column(Integer, nullable=True)      # Number of correct answers
     
     completed = Column(Boolean, default=False, nullable=False)
     
@@ -101,7 +100,7 @@ class DashboardCode(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     phone_number = Column(String(20), nullable=False, index=True)
-    code_hash = Column(String(64), nullable=False)  # SHA-256 hex of 6-digit code
+    code_hash = Column(String(64), nullable=False)  # SHA-256 hex digest of the 6-digit code
     expires_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -119,7 +118,7 @@ def get_db() -> Generator[Session, None, None]:
 
 def create_tables():
     Base.metadata.create_all(bind=engine)
-    # Add Progress.hidden column for existing DBs (no-op if already present)
+    # Migrate: add `hidden` column to existing databases (no-op if already present)
     try:
         from sqlalchemy import text
         with engine.connect() as conn:
@@ -129,7 +128,7 @@ def create_tables():
                 conn.execute(text("ALTER TABLE progress ADD COLUMN hidden BOOLEAN DEFAULT false"))
             conn.commit()
     except Exception:
-        pass  # Column already exists
+        pass
 
 
 def get_user_by_phone(db: Session, phone_number: str) -> User:

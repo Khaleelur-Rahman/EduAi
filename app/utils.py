@@ -5,29 +5,24 @@ from .language import SUPPORTED_LANGUAGES, get_language_name
 
 
 def strip_think_tags(text: str) -> str:
-    """Remove <think>...</think> blocks from LLM output (Qwen/Cerebras thinking tokens)."""
+    """Remove <think>...</think> blocks from LLM output (Cerebras/Qwen thinking tokens)."""
     if not text or not text.strip():
         return text
-    # Remove complete <think>...</think> blocks
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
-    # Remove unclosed <think>... at start (e.g. if response was cut off)
+    # Also remove unclosed <think>... in case the response was cut off mid-block
     text = re.sub(r'<think>.*', '', text, flags=re.DOTALL | re.IGNORECASE)
     return text.strip()
 
 
 def clean_whatsapp_formatting(text: str) -> str:
-    """Clean up formatting issues in WhatsApp messages."""
-    # Replace double asterisks with single asterisks (WhatsApp uses single * for bold)
-    # Handle cases like **text** or **text* or *text**
-    text = re.sub(r'\*\*([^*]+)\*\*', r'*\1*', text)  # **text** -> *text*
-    text = re.sub(r'\*\*([^*]+)\*', r'*\1*', text)   # **text* -> *text*
-    text = re.sub(r'\*([^*]+)\*\*', r'*\1*', text)   # *text** -> *text*
-    
-    # Remove standalone double asterisks
+    """Normalise LLM markdown to WhatsApp format (single * for bold) and remove off-topic sections."""
+    # Normalise double-asterisk bold variants to single-asterisk (WhatsApp format)
+    text = re.sub(r'\*\*([^*]+)\*\*', r'*\1*', text)
+    text = re.sub(r'\*\*([^*]+)\*', r'*\1*', text)
+    text = re.sub(r'\*([^*]+)\*\*', r'*\1*', text)
     text = re.sub(r'\*\*+', '', text)
     
-    # Remove "Try This at Home" sections that are generic/unrelated
-    # Match the pattern and everything until the next section (marked by _Type or double newline)
+    # Strip generic "Try This at Home" sections that are unrelated to the lesson topic
     text = re.sub(
         r'[\*\s]*Try This at Home[!*]*[\*\s]*.*?(?=\n\n|\n_|_Type|$)', 
         '', 
@@ -41,17 +36,14 @@ def clean_whatsapp_formatting(text: str) -> str:
         flags=re.IGNORECASE | re.DOTALL
     )
     
-    # Clean up any remaining formatting artifacts
-    text = re.sub(r'\*{3,}', '*', text)  # Replace 3+ asterisks with single
-    text = re.sub(r'\s+\*+\s+', ' ', text)  # Remove isolated asterisks with spaces
-    text = re.sub(r'\n{3,}', '\n\n', text)  # Remove excessive newlines
+    text = re.sub(r'\*{3,}', '*', text)
+    text = re.sub(r'\s+\*+\s+', ' ', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
     
     return text.strip()
 
 def format_for_whatsapp(text: str, age_group: int) -> str:
-    # Strip LLM thinking/reasoning blocks (e.g. <think>...</think>) before presenting to user
     text = strip_think_tags(text)
-    # Clean up formatting issues
     text = clean_whatsapp_formatting(text)
     
     formatted_text = apply_whatsapp_formatting(text)
@@ -69,9 +61,8 @@ def apply_whatsapp_formatting(text: str) -> str:
     for term in key_terms:
         text = re.sub(f'({term})', r'*\1*', text, flags=re.IGNORECASE)
     
-    # Match "Example:" or "Practice:" only when they appear as standalone labels
-    # Require them to be at start of line, after newline, or after punctuation
-    # This avoids matching when part of phrases like "Fun example:" or "great example:"
+    # Italicise "Example:" and "Practice:" only when they appear as standalone section labels,
+    # not when embedded in phrases like "Fun example:" or "great example:"
     text = re.sub(r'(^|\n|[.!?]\s+)(Example:.*?)(\n|$)', r'\1_\2_\3', text, flags=re.IGNORECASE | re.MULTILINE)
     text = re.sub(r'(^|\n|[.!?]\s+)(Practice:.*?)(\n|$)', r'\1_\2_\3', text, flags=re.IGNORECASE | re.MULTILINE)
     
@@ -216,7 +207,6 @@ For voice messages, use this format:
 • Perfect for skill development and knowledge growth 📈
 """
     
-    # Translate messages based on language
     if language != "en":
         base_commands = _translate_help_message(base_commands, language)
         additional = _translate_help_message(additional, language)
@@ -462,12 +452,11 @@ def format_progress_review(
         lines.append(t["no_fixed_end"])
         lines.append("")
 
-    # Lessons section - deduplicate by (topic, lesson_step)
     lines.append(f"📚 *{t['lessons']}:*")
     if not lessons:
         lines.append(f"• {t['no_lessons_yet']}")
     else:
-        # Deduplicate lessons by (topic.lower(), lesson_step)
+        # Deduplicate by (topic, step) to avoid showing duplicate rows for the same lesson
         seen_lessons = set()
         unique_lessons = []
         for p in lessons:
@@ -475,13 +464,11 @@ def format_progress_review(
             if key not in seen_lessons:
                 seen_lessons.add(key)
                 unique_lessons.append(p)
-        # Show only top 8 unique lessons
         for p in unique_lessons[:8]:
             title = clean_topic_title(p.topic)
             if getattr(p, "completed", False):
                 lines.append(f"• {title} ({t['completed']})")
             else:
-                # Format: "Topic - Part X" (removed /total_steps)
                 lines.append(f"• {title} - Part {p.lesson_step}")
 
     lines.append("")
@@ -497,7 +484,6 @@ def format_progress_review(
             except (json.JSONDecodeError, TypeError):
                 total = 3
             score = q.score if q.score is not None else 0
-            # Add lesson_step if available: "Topic - Part X: Score/Total"
             lesson_step = getattr(q, "lesson_step", None)
             if lesson_step:
                 lines.append(f"• {title} - Part {lesson_step}: {score}/{total}")
@@ -542,50 +528,56 @@ def get_loading_message(command_type: str, topic: str = None, language: str = "e
     translations = {
         "en": {
             "lesson": f"⏳ Loading lesson: {topic.title()}" if topic else "⏳ LOADING LESSON...",
+            "audio": f"⏳ Loading audio lesson: {topic.title()}" if topic else "⏳ LOADING AUDIO LESSON...",
             "next": "⏳ Loading next part...",
             "quiz": "⏳ Loading quiz...",
             "progress": "⏳ Loading your progress...",
-            "video": f"⏳ Generating video: {topic.title()}…" if topic else "⏳ Creating your video…",
+            "video": f"⏳ Generating video lesson: {topic.title()}…" if topic else "⏳ Generating video lesson…",
             "default": "⏳ LOADING...",
         },
         "es": {
             "lesson": f"⏳ Cargando lección: {topic.title()}" if topic else "⏳ CARGANDO LECCIÓN...",
+            "audio": f"⏳ Cargando lección de audio: {topic.title()}" if topic else "⏳ CARGANDO LECCIÓN DE AUDIO...",
             "next": "⏳ Cargando siguiente parte...",
             "quiz": "⏳ Cargando cuestionario...",
             "progress": "⏳ Cargando tu progreso...",
-            "video": f"⏳ Creando tu video sobre {topic.title()}…" if topic else "⏳ Creando tu video…",
+            "video": f"⏳ Generando lección en video: {topic.title()}…" if topic else "⏳ Generando lección en video…",
             "default": "⏳ CARGANDO...",
         },
         "fr": {
             "lesson": f"⏳ Chargement de la leçon: {topic.title()}" if topic else "⏳ CHARGEMENT DE LA LEÇON...",
+            "audio": f"⏳ Chargement de la leçon audio: {topic.title()}" if topic else "⏳ CHARGEMENT DE LA LEÇON AUDIO...",
             "next": "⏳ Chargement de la partie suivante...",
             "quiz": "⏳ Chargement du quiz...",
             "progress": "⏳ Chargement de votre progression...",
-            "video": f"⏳ Création de ta vidéo sur {topic.title()}…" if topic else "⏳ Création de ta vidéo…",
+            "video": f"⏳ Génération de la leçon vidéo: {topic.title()}…" if topic else "⏳ Génération de la leçon vidéo…",
             "default": "⏳ CHARGEMENT...",
         },
         "ms": {
             "lesson": f"⏳ Memuatkan pelajaran: {topic.title()}" if topic else "⏳ MEMUATKAN PELAJARAN...",
+            "audio": f"⏳ Memuatkan pelajaran audio: {topic.title()}" if topic else "⏳ MEMUATKAN PELAJARAN AUDIO...",
             "next": "⏳ Memuatkan bahagian seterusnya...",
             "quiz": "⏳ Memuatkan kuiz...",
             "progress": "⏳ Memuatkan kemajuan anda...",
-            "video": f"⏳ Mencipta video anda tentang {topic.title()}…" if topic else "⏳ Mencipta video…",
+            "video": f"⏳ Menjana pelajaran video: {topic.title()}…" if topic else "⏳ Menjana pelajaran video…",
             "default": "⏳ MEMUATKAN...",
         },
         "zh": {
             "lesson": f"⏳ 加载课程: {topic.title()}" if topic else "⏳ 加载课程中...",
+            "audio": f"⏳ 加载音频课程: {topic.title()}" if topic else "⏳ 加载音频课程中...",
             "next": "⏳ 加载下一部分...",
             "quiz": "⏳ 加载测验...",
             "progress": "⏳ 加载你的进度...",
-            "video": f"⏳ 正在生成关于 {topic.title()} 的视频…" if topic else "⏳ 正在生成视频…",
+            "video": f"⏳ 正在生成视频课程: {topic.title()}…" if topic else "⏳ 正在生成视频课程…",
             "default": "⏳ 加载中...",
         },
         "hi": {
             "lesson": f"⏳ पाठ लोड हो रहा है: {topic.title()}" if topic else "⏳ पाठ लोड हो रहा है...",
+            "audio": f"⏳ ऑडियो पाठ लोड हो रहा है: {topic.title()}" if topic else "⏳ ऑडियो पाठ लोड हो रहा है...",
             "next": "⏳ अगला भाग लोड हो रहा है...",
             "quiz": "⏳ क्विज़ लोड हो रहा है...",
             "progress": "⏳ आपकी प्रगति लोड हो रही है...",
-            "video": f"⏳ {topic.title()} पर आपकी वीडियो बन रही है…" if topic else "⏳ वीडियो बन रही है…",
+            "video": f"⏳ वीडियो पाठ बन रहा है: {topic.title()}…" if topic else "⏳ वीडियो पाठ बन रहा है…",
             "default": "⏳ लोड हो रहा है...",
         },
     }
@@ -600,13 +592,12 @@ def parse_lesson_command(message: str) -> Optional[str]:
     """
     message = message.strip()
     
-    # Try text format first: /lesson <topic>
     match = re.match(r'/lesson\s+(.+)', message, re.IGNORECASE)
     if match:
         topic = match.group(1).strip()
         return topic
     
-    # Try voice-friendly format: lesson <topic> (without slash)
+    # Voice-friendly format: "lesson <topic>" without slash
     match = re.match(r'^lesson\s+(.+)', message, re.IGNORECASE)
     if match:
         topic = match.group(1).strip()

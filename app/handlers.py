@@ -52,13 +52,8 @@ class MessageHandler:
         self.onboarding_steps = {
             'name': "First, what's your *name*? Type your name below (e.g. Alex or Maria). After this quick setup you can use /help for commands. 😊",
             'age': 'How old are you? Enter a number between 6 and 12. (This helps me adjust lessons for you)',
-            # 'country': 'Which country are you from?',
-            # 'subjects': 'What subjects interest you? (e.g., math, science, history - separate with commas)',
-            # 'learning_mode': 'Do you prefer learning through "text" or would you like "audio" lessons in the future?',
-            # 'language': 'What language would you like to learn in? (Currently supporting English - just type "english" or "en")'
         }
         
-        # RAG confidence threshold for determining if retrieved content is relevant
         self.rag_confidence_threshold = 0.6
     
     def process_message(self, db: Session, phone_number: str, message: str, for_audio: bool = False) -> str:
@@ -91,7 +86,7 @@ class MessageHandler:
 
     def _handle_onboarding(self, db: Session, user: User, message: str, is_new_user: bool = False) -> str:
         current_step = user.onboarding_step
-        # Show welcome + name question when: (1) brand new user, or (2) on name step with no name yet and they sent a command
+        # Show welcome on first contact or when user sends a command before entering their name
         if current_step == 'name' and not user.name:
             if is_new_user:
                 return self._get_name_prompt(with_welcome=True)
@@ -101,30 +96,16 @@ class MessageHandler:
             return self._process_name_step(db, user, message)
         elif current_step == 'age':
             return self._process_age_step(db, user, message)
-        # The following onboarding steps are not used in the simplified flow:
-        # elif current_step == 'country':
-        #     return self._process_country_step(db, user, message)
-        # elif current_step == 'subjects':
-        #     return self._process_subjects_step(db, user, message)
-        # elif current_step == 'learning_mode':
-        #     return self._process_learning_mode_step(db, user, message)
-        # elif current_step == 'language':
-        #     return self._process_language_step(db, user, message)
         
-        # If we reach here, the user is on a legacy/unrecognized step (e.g., 'country').
-        # Reset onboarding to 'name' to recover gracefully.
+        # Legacy/unrecognized step (e.g. 'country' from old onboarding flow) — reset gracefully
         try:
             update_user(db, user, onboarding_step='name')
         except Exception:
             pass
-        # Return the first onboarding prompt directly
         return self.onboarding_steps['name']
-        
-        return "Something went wrong with onboarding. Let me help you start over! What's your name?"
     
     def _process_name_step(self, db: Session, user: User, message: str) -> str:
         name = message.strip()
-        # Don't accept commands (e.g. /help, /lesson) as a name — ask for name first
         if name.startswith("/"):
             return "That's a command (like /help). Please type your *name* first — e.g. Alex or Maria — then you can use commands after setup. What should I call you? 😊"
         if len(name) < 1 or len(name) > 50:
@@ -140,7 +121,6 @@ class MessageHandler:
         if age is None:
             return "Please enter a valid age (between 6 and 12). How old are you?"
         
-        # Complete onboarding after collecting age in the simplified flow
         update_user(db, user, age=age, language='en', is_onboarded=True, onboarding_step='completed')
         emoji = get_greeting_emoji(age)
         
@@ -169,61 +149,10 @@ What would you like to learn about first? 🚀
         
         return format_for_whatsapp(welcome_msg, age)
     
-    # The following handlers are unused in the simplified onboarding and are kept
-    # commented for reference if we re-enable extended onboarding later.
-    # def _process_country_step(self, db: Session, user: User, message: str) -> str:
-    #     country = validate_country(message)
-    #     if country is None:
-    #         return "Please enter a valid country name. Which country are you from?"
-    #     update_user(db, user, country=country, onboarding_step='subjects')
-    #     return f"Great! Welcome from {country}! 🌍\n\n{self.onboarding_steps['subjects']}"
-    
-    # def _process_subjects_step(self, db: Session, user: User, message: str) -> str:
-    #     subjects = validate_subjects(message)
-    #     if not subjects:
-    #         return "Please enter at least one subject you're interested in (e.g., math, science, history):"
-    #     subjects_json = store_subjects_as_json(subjects)
-    #     update_user(db, user, preferred_subjects=subjects_json, onboarding_step='learning_mode')
-    #     subjects_text = ", ".join(subjects)
-    #     return f"Awesome! I see you're interested in: {subjects_text} 📚\n\n{self.onboarding_steps['learning_mode']}"
-    
-    # def _process_learning_mode_step(self, db: Session, user: User, message: str) -> str:
-    #     mode = validate_learning_mode(message)
-    #     if mode is None:
-    #         return 'Please choose either "text" for written lessons or "audio" for spoken lessons (audio coming soon!):'
-    #     update_user(db, user, learning_mode=mode, onboarding_step='language')
-    #     mode_text = "text-based" if mode == 'text' else "audio-based"
-    #     return f"Perfect! I'll provide {mode_text} lessons. 📖\n\n{self.onboarding_steps['language']}"
-    
-    # def _process_language_step(self, db: Session, user: User, message: str) -> str:
-    #     language = message.strip().lower()
-    #     if language not in ['english', 'en', 'eng']:
-    #         return 'Currently I only support English. Please type "english" or "en" to continue:'
-    #     update_user(db, user, language='en', is_onboarded=True, onboarding_step='completed')
-    #     emoji = get_greeting_emoji(user.age)
-    #     welcome_msg = f"""
-    # 🎉 *Welcome to your personalized AI Tutor, {user.name}!* {emoji}
-    #
-    # You're all set up! Here's what I know about you:
-    # • Age: {user.age}
-    # • Country: {user.country}
-    # • Learning mode: {user.learning_mode}
-    #
-    # *Ready to learn? Try these commands:*
-    # 📚 `/lesson <topic>` - Start learning any topic
-    # ❓ `/help` - Get help and see all commands
-    #
-    # *Example:* Try typing `/lesson cells` or `/lesson photosynthesis`
-    #
-    # What would you like to learn about first? 🚀
-    #         """
-    #     return format_for_whatsapp(welcome_msg, user.age)
-    
     def _handle_regular_message(self, db: Session, user: User, message: str, for_audio: bool = False):
         message = message.strip()
         message_lower = message.lower()
         
-        # Handle commands (text format with slash)
         if message_lower.startswith('/help'):
             return self._handle_help_command(user)
         
@@ -254,7 +183,6 @@ What would you like to learn about first? 🚀
         elif message_lower.startswith('help'):
             return self._handle_help_command(user)
         
-        # Handle quiz answers (check if user has an active quiz)
         elif self._is_quiz_answer(message):
             return self._handle_quiz_answer(db, user, message)
         
@@ -298,7 +226,6 @@ What would you like to learn about first? 🚀
             error_msg = "Please specify a topic! For example: `/lesson cells` or `/lesson photosynthesis` 📚\n\n🎤 *Voice format:* Say \"teach me about cells\" or \"teach me about photosynthesis\""
             return error_msg if for_audio else {"text": error_msg}
         
-        # Try RAG retrieval first for any topic (unless LESSON_USE_RAG=0 for speed)
         use_rag = (os.getenv("LESSON_USE_RAG", "1").strip().lower() not in ("0", "false", "no"))
         rag_success = False
         if use_rag:
@@ -310,7 +237,6 @@ What would you like to learn about first? 🚀
         else:
             result = self._generate_base_llm_lesson(db, user, topic, for_audio=for_audio)
         
-        # Ensure result is a dict for text lessons (image already attached inside _generate_* when not for_audio)
         if not for_audio and isinstance(result, str):
             result = {"text": result}
         if not for_audio and result.get("image_bytes") is None:
@@ -326,7 +252,7 @@ What would you like to learn about first? 🚀
         
         try:
             if _is_render_free_tier():
-                # Prod: use LLM-only continuation (no RAG) to save memory
+                # Use LLM-only on free tier to avoid loading RAG models
                 follow_up_topic = f"{current_lesson.topic} - Advanced Concepts"
                 lesson_content = generate_lesson(
                     follow_up_topic, user.age, user.name,
@@ -371,7 +297,7 @@ What would you like to learn about first? 🚀
                 
                 lesson_content = lesson_content.strip()
                 lesson_content = strip_think_tags(lesson_content)
-                # Some models (e.g. gpt-oss-120b) may return empty stream; fallback to non-streaming
+                # Some models return an empty stream; fall back to non-streaming
                 if not lesson_content:
                     non_stream = llm_service.client.chat.completions.create(
                         model=llm_service.model_name,
@@ -390,11 +316,8 @@ What would you like to learn about first? 🚀
                     if not lesson_content:
                         logger.warning("Cerebras returned no content for /next (stream and non-stream); using fallback")
                         lesson_content = f"Here's more about {current_lesson.topic}. Keep exploring with /lesson for other topics!"
-                # Check if content exceeds Twilio's 1400 character limit
                 if len(lesson_content) > 1400:
                     logger.warning(f"Next lesson response too long ({len(lesson_content)} chars), retrying with stricter limit")
-                    # Retry with a much stricter character limit
-                    # Language instruction
                     lang_instruction = ""
                     if user.language != "en":
                         from .language import get_language_name
@@ -436,29 +359,26 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
                             {"role": "system", "content": retry_system_prompt},
                             {"role": "user", "content": user_prompt}
                         ],
-                        max_completion_tokens=600,  # Increased to ensure complete responses
-                        temperature=0.7,
-                        top_p=0.8,
-                        stream=True
-                    )
-                    
-                    lesson_content = ""
-                    for chunk in retry_response:
-                        if chunk.choices[0].delta.content:
-                            lesson_content += chunk.choices[0].delta.content
-                    
-                    lesson_content = lesson_content.strip()
-                    lesson_content = strip_think_tags(lesson_content)
-                    logger.info(f"Next lesson retry response length: {len(lesson_content)} characters")
+                    max_completion_tokens=600,
+                    temperature=0.7,
+                    top_p=0.8,
+                    stream=True
+                )
                 
-                # Check if content appears to be truncated (doesn't end with proper punctuation)
-                # Allow emojis at the end, but check the text before emojis
+                lesson_content = ""
+                for chunk in retry_response:
+                    if chunk.choices[0].delta.content:
+                        lesson_content += chunk.choices[0].delta.content
+                
+                lesson_content = lesson_content.strip()
+                lesson_content = strip_think_tags(lesson_content)
+                logger.info(f"Next lesson retry response length: {len(lesson_content)} characters")
+                
+                # Check for truncation: emojis can appear after punctuation, so strip them before checking
                 import re
                 text_without_emojis = re.sub(r'[\s\U0001F300-\U0001F9FF]+$', '', lesson_content.rstrip())
                 if lesson_content and text_without_emojis and not text_without_emojis.endswith(('.', '!', '?', ':', ';')):
                     logger.warning(f"Next lesson content appears truncated, attempting to complete: {lesson_content[-100:]}")
-                    # Try to complete the truncated content
-                    # Language instruction for completion
                     lang_instruction = ""
                     if user.language != "en":
                         from .language import get_language_name
@@ -481,9 +401,8 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
                     
                     if completion_response.choices[0].message.content:
                         completion = completion_response.choices[0].message.content.strip()
-                        # Strip think tags from completion
                         completion = strip_think_tags(completion)
-                        # Remove any duplicate text at the start
+                        # Avoid appending text that duplicates the end of existing content
                         if lesson_content.endswith(completion[:20]):
                             lesson_content = lesson_content.rstrip()
                         else:
@@ -492,7 +411,6 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
                         # Ensure completion ends with punctuation (before any emojis)
                         text_without_emojis = re.sub(r'[\s\U0001F300-\U0001F9FF]+$', '', lesson_content.rstrip())
                         if text_without_emojis and not text_without_emojis.endswith(('.', '!', '?', ':', ';')):
-                            # Add punctuation if missing
                             lesson_content = lesson_content.rstrip() + '.'
                         
                         logger.info(f"Successfully completed truncated next lesson content")
@@ -503,11 +421,10 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
                     sentences = lesson_content.split('. ')
                     truncated = ""
                     for sentence in sentences:
-                        if len(truncated + sentence + '. ') <= 1350:  # Leave room for proper ending
+                        if len(truncated + sentence + '. ') <= 1350:
                             truncated += sentence + '. '
                         else:
                             break
-                    # Ensure it ends with punctuation
                     truncated = truncated.strip()
                     if not truncated.endswith(('.', '!', '?')):
                         truncated += '.'
@@ -525,13 +442,11 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
                 if for_audio:
                     return result_text
                 
-                # For text lessons, always add image (same as /lesson)
                 result = {"text": result_text}
                 _attach_lesson_image(result, current_lesson.topic, user.language, "next")
                 return result
             
             else:
-                # Use fallback LLM approach for non-RAG lessons
                 follow_up_topic = f"{current_lesson.topic} - Advanced Concepts"
                 lesson_content = generate_lesson(
                     follow_up_topic, user.age, user.name, 
@@ -547,7 +462,6 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
                 if for_audio:
                     return result_text
                 
-                # For text lessons, always add image (same as /lesson)
                 result = {"text": result_text}
                 _attach_lesson_image(result, current_lesson.topic, user.language, "next")
                 return result
@@ -558,7 +472,7 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
             return error_msg if for_audio else {"text": error_msg}
     
     def _handle_general_message(self, db: Session, user: User, message: str, for_audio: bool = False) -> str:
-        """Handle general messages with keyword fallback for natural speech."""
+        """Handle unrecognised messages using keyword matching for natural speech input."""
         question_keywords = [
             'teach me about', 'can you teach me about',
             'what is', 'how do', 'how does', 'explain', 
@@ -571,7 +485,6 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
         
         for keyword in question_keywords:
             if keyword in message_lower:
-                # Find the position of the keyword and extract text AFTER it
                 keyword_pos = message_lower.find(keyword)
                 if keyword_pos != -1:
                     topic = message_lower[keyword_pos + len(keyword):].strip()
@@ -643,8 +556,6 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
             lesson_content = strip_think_tags(lesson_content)
             if len(lesson_content) > 4600:
                 logger.warning(f"RAG response too long ({len(lesson_content)} chars), retrying with stricter limit")
-                # Retry with a much stricter character limit
-                # Language instruction
                 lang_instruction = ""
                 if user.language != "en":
                     from .language import get_language_name
@@ -680,7 +591,7 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
                         {"role": "system", "content": retry_system_prompt},
                         {"role": "user", "content": user_prompt}
                     ],
-                    max_completion_tokens=400,  # Reduced token limit
+                    max_completion_tokens=400,
                     temperature=0.7,
                     top_p=0.8,
                     stream=True
@@ -695,11 +606,8 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
                 lesson_content = strip_think_tags(lesson_content)
                 logger.info(f"RAG retry response length: {len(lesson_content)} characters")
             
-            # Check if content appears to be truncated (doesn't end with proper punctuation)
             if lesson_content and not lesson_content.rstrip().endswith(('.', '!', '?', ':', ';')):
                 logger.warning(f"RAG content appears truncated, attempting to complete: {lesson_content[-100:]}")
-                # Try to complete the truncated content
-                # Language instruction for completion
                 lang_instruction = ""
                 if user.language != "en":
                     from .language import get_language_name
@@ -722,26 +630,23 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
                 
                 if completion_response.choices[0].message.content:
                     completion = completion_response.choices[0].message.content.strip()
-                    # Strip think tags from completion
                     completion = strip_think_tags(completion)
-                    # Remove any duplicate text at the start
+                    # Avoid appending text that duplicates the end of existing content
                     if lesson_content.endswith(completion[:20]):
                         lesson_content = lesson_content.rstrip()
                     else:
                         lesson_content += " " + completion
                     logger.info(f"Successfully completed truncated RAG content")
             
-            # Final check - if still over limit, truncate at sentence boundary but ensure it ends properly
             if len(lesson_content) > 1400:
                 logger.warning(f"RAG response still too long ({len(lesson_content)} chars), truncating at sentence boundary")
                 sentences = lesson_content.split('. ')
                 truncated = ""
                 for sentence in sentences:
-                    if len(truncated + sentence + '. ') <= 1350:  # Leave room for proper ending
+                    if len(truncated + sentence + '. ') <= 1350:
                         truncated += sentence + '. '
                     else:
                         break
-                # Ensure it ends with punctuation
                 truncated = truncated.strip()
                 if not truncated.endswith(('.', '!', '?')):
                     truncated += '.'
@@ -775,7 +680,6 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
 
         except Exception as e:
             logger.error(f"Failed to generate RAG lesson for topic {topic}: {str(e)}")
-            # Fallback to base LLM if RAG generation fails
             return self._generate_base_llm_lesson(db, user, topic, for_audio=for_audio)
         finally:
             if pool is not None:
@@ -821,9 +725,8 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
     
     def _try_rag_retrieval(self, topic: str, user: User) -> Tuple[bool, Optional[List[Dict]], Optional[str]]:
         """
-        Try to retrieve relevant chunks from RAG database for any topic.
-        Returns (success, retrieved_chunks, chunk_id) where success indicates high confidence retrieval.
-        On Render free tier (RENDER_FREE_TIER=1), skip RAG to avoid loading sentence-transformers/ChromaDB.
+        Returns (success, retrieved_chunks, chunk_id).
+        Skips RAG on Render free tier to avoid loading sentence-transformers/ChromaDB into limited memory.
         """
         if _is_render_free_tier():
             return False, None, None
@@ -833,14 +736,10 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
             
             from .rag import rag_service
             retrieved_chunks = rag_service.retrieve_relevant_chunks(topic, limit=5)
-
-            # logger.info(f"Retrieved chunks: {retrieved_chunks}")
             
             if not retrieved_chunks:
                 return False, None, None
             
-            # Check retrieval confidence - if all similarity scores are below threshold, 
-            # consider it low confidence
             if all(chunk['similarity_score'] < self.rag_confidence_threshold for chunk in retrieved_chunks):
                 logger.info(f"Low confidence RAG retrieval for topic '{topic}' - scores: {[c['similarity_score'] for c in retrieved_chunks]}")
                 return False, retrieved_chunks, None
@@ -849,12 +748,11 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
             return True, retrieved_chunks, chunk_id
             
         except Exception as e:
-            logger.error(f"Error during RAG retrieval for topic '{topic}': {str(e)}")
+            logger.error(f"Error during RAG retrieval for topic '{topic}'")
             return False, None, None
     
     
     def _handle_quiz_command(self, db: Session, user: User) -> str:
-        """Handle /quiz command to create a quiz from current lesson"""
         try:
             current_lesson = get_current_lesson(db, user.id)
             if not current_lesson:
@@ -873,19 +771,14 @@ AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for liste
             return "Sorry, I had trouble creating a quiz. Please try again! 🧩"
     
     def _is_quiz_answer(self, message: str) -> bool:
-        """Check if message looks like quiz answers (e.g., '1A, 2B, 3True' or '1A 2A 3A')"""
+        """Detect quiz answer format: '1A 2B 3True' or '1A, 2B, 3C'. Requires at least 2 matches."""
         import re
-        # Check if message contains patterns like "1A", "2B", "3True", etc.
-        # Allow spaces or commas as separators
         pattern = r'\d+[A-D]|\d+(True|False)'
         matches = re.findall(pattern, message, re.IGNORECASE)
-        # Consider it a quiz answer if we find at least 2 matches (likely multiple questions)
         return len(matches) >= 2
     
     def _handle_quiz_answer(self, db: Session, user: User, message: str) -> str:
-        """Handle quiz answer submission"""
         try:
-            # Check if user has an active quiz
             current_quiz = get_current_quiz(db, user.id)
             if not current_quiz:
                 return "You don't have any active quiz. Start a lesson and use `/quiz` to create one! 🧩"
@@ -931,7 +824,6 @@ def process_whatsapp_message_request_audio(db: Session, phone_number: str, messa
         user = create_user(db, phone_number)
     if not user.is_onboarded:
         return result
-    # Set lesson title for audio header (e.g. "📚 Lesson: Microbes")
     if msg_lower == "/audio next" or msg_lower.startswith("/audio next"):
         current_lesson = get_current_lesson(db, user.id)
         result["lesson_title"] = clean_topic_title(current_lesson.topic) if current_lesson else "Next part"
@@ -939,7 +831,7 @@ def process_whatsapp_message_request_audio(db: Session, phone_number: str, messa
         topic = msg[7:].strip()
         if topic:
             result["lesson_title"] = clean_topic_title(topic)
-    # Don't synthesize error messages as audio - send as text only
+    # Skip TTS for error messages; send as text so the user gets readable feedback
     if response_text.strip().lower().startswith("sorry,") or "trouble creating" in response_text.lower() or "trouble preparing" in response_text.lower():
         result["tts_failed"] = True
         logger.info("Skipping TTS for error response; sending as text")
@@ -991,7 +883,7 @@ def process_whatsapp_message_request_video(db: Session, phone_number: str, messa
             video_bytes, content_type, narration = out
             result["video_bytes"] = video_bytes
             result["video_content_type"] = content_type
-            # Record as progress so /quiz works after watching the video
+        # Save progress so /quiz is available after watching the video
             try:
                 create_progress(
                     db, user.id, topic,
@@ -1054,11 +946,10 @@ async def process_whatsapp_audio(
         
         audio_data = None
         
-        # Method 1: Use provided Twilio client (preferred)
+        # Preferred: fetch via Twilio client (handles auth automatically)
         if twilio_client:
             try:
                 logger.info("Fetching media using Twilio client...")
-                # Extract Message SID and Media SID from URL
                 # URL format: .../Accounts/{AC}/Messages/{MM}/Media/{ME}...
                 parts = media_url.split('/')
                 message_sid = None
@@ -1071,10 +962,7 @@ async def process_whatsapp_audio(
                         media_sid = parts[i + 1].split('/')[0]
                 
                 if message_sid and media_sid:
-                    # Fetch media using Twilio client
                     media = twilio_client.messages(message_sid).media(media_sid).fetch()
-                    # Get content URL (remove .json extension if present)
-                    # media.uri might be a relative path, so we need to construct the full URL
                     if media.uri.startswith('http'):
                         content_url = media.uri.replace('.json', '')
                     else:
@@ -1094,7 +982,7 @@ async def process_whatsapp_audio(
             except Exception as client_err:
                 logger.warning(f"Failed to fetch using Twilio client: {client_err}, trying direct HTTP...")
         
-        # Method 2: Direct HTTP request with credentials
+        # Fallback: direct HTTP with Basic Auth
         if not audio_data:
             if not twilio_account_sid:
                 twilio_account_sid = os.getenv("TWILIO_ACCOUNT_SID")
@@ -1123,7 +1011,6 @@ async def process_whatsapp_audio(
         
         logger.info(f"Audio fetched: {len(audio_data)} bytes, type: {content_type}")
         
-        # Transcribe audio to text
         logger.info("Transcribing audio...")
         user = get_user_by_phone(db, phone_number)
         if not user:
@@ -1139,7 +1026,6 @@ async def process_whatsapp_audio(
         
         logger.info(f"Transcription successful: {transcribed_text}")
         
-        # Check if transcription matches expected voice format
         transcribed_lower = transcribed_text.lower().strip()
         voice_format_commands = ['teach me about ', 'lesson ', 'next', 'quiz', 'help', 'progress', 'review']
         uses_voice_format = any(transcribed_lower.startswith(cmd) for cmd in voice_format_commands)
@@ -1147,7 +1033,7 @@ async def process_whatsapp_audio(
         if not uses_voice_format and user.is_onboarded:
             logger.info("Voice message doesn't use recommended format 'teach me about <topic>', will try keyword fallback")
         
-        # Send loading message for voice commands (after transcription, before processing)
+        # Send loading message after transcription but before the slow LLM call
         if twilio_client and uses_voice_format:
             try:
                 import os
@@ -1163,7 +1049,7 @@ async def process_whatsapp_audio(
                     if transcribed_lower.startswith("teach me about ") or transcribed_lower.startswith("lesson "):
                         topic = transcribed_text[len("teach me about " if transcribed_lower.startswith("teach me about ") else "lesson "):].strip()
                         if topic:
-                            loading_text = get_loading_message("lesson", topic, user_language)
+                            loading_text = get_loading_message("audio", topic, user_language)
                     elif transcribed_lower.strip() == "next" or transcribed_lower.startswith("next "):
                         loading_text = get_loading_message("next", None, user_language)
                     elif transcribed_lower.startswith("quiz"):
@@ -1185,12 +1071,11 @@ async def process_whatsapp_audio(
         response_text = process_whatsapp_message(db, phone_number, transcribed_text, for_audio=for_audio)
         
         result = {'text': response_text}
-        # Don't synthesize error messages as audio - send as text only
+        # Skip TTS for error messages to avoid reading out error text aloud
         if response_text.strip().lower().startswith("sorry,") or "trouble creating" in response_text.lower() or "trouble preparing" in response_text.lower():
             result["tts_failed"] = True
             logger.info("Skipping TTS for error response (voice); sending as text")
             return result
-        # Set lesson title for audio header (e.g. "📚 Lesson: Microbes")
         if transcribed_lower.startswith("teach me about "):
             topic = transcribed_text[len("teach me about "):].strip()
             if topic:
@@ -1202,8 +1087,8 @@ async def process_whatsapp_audio(
         elif transcribed_lower.strip() == "next" or transcribed_lower.startswith("next "):
             current_lesson = get_current_lesson(db, user.id)
             result["lesson_title"] = clean_topic_title(current_lesson.topic) if current_lesson else "Next part"
-        # Generate audio response if requested and user is onboarded (chunked so full paragraph is sent as multiple voice notes)
-        # Fallback: result['text'] is always set above — when TTS fails, caller should send text instead.
+        # Chunked TTS: full lesson split across multiple voice notes.
+        # result['text'] is always populated so caller can fall back to text if TTS fails.
         if return_audio and user.is_onboarded:
             try:
                 age = user.age if user.age else 10

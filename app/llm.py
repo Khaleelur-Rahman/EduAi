@@ -14,10 +14,10 @@ MIN_IMAGE_PROMPTS = 2
 class LLMService:
     
     def __init__(self):
-        self.model_name = os.getenv("CEREBRAS_MODEL", "llama3.1-8b")  # Cerebras Cloud production model
+        self.model_name = os.getenv("CEREBRAS_MODEL", "llama3.1-8b")
         self.api_key = os.getenv("CEREBRAS_API_KEY")
         self.client = None
-        self.max_tokens = 1000  # Increased to ensure complete responses
+        self.max_tokens = 1000
         self.temperature = 0.7
         self.top_p = 0.8
         self._initialized = False
@@ -95,8 +95,6 @@ class LLMService:
             lesson_content = re.sub(r'<think>.*?</think>', '', lesson_content, flags=re.DOTALL | re.IGNORECASE).strip()
             if len(lesson_content) > 1400:
                 logger.warning(f"Response too long ({len(lesson_content)} chars), retrying with stricter limit")
-                # Retry with a much stricter character limit
-                # Language instruction
                 lang_instruction = ""
                 if language != "en":
                     from .language import get_language_name
@@ -181,7 +179,7 @@ Continue the lesson naturally, referencing what was just covered and building on
                         {"role": "system", "content": retry_system_prompt},
                         {"role": "user", "content": retry_user_prompt}
                     ],
-                    max_completion_tokens=600,  # Increased to ensure complete responses
+                    max_completion_tokens=600,
                     temperature=0.7,
                     top_p=0.8,
                     stream=True
@@ -196,14 +194,10 @@ Continue the lesson naturally, referencing what was just covered and building on
                 lesson_content = re.sub(r'<think>.*?</think>', '', lesson_content, flags=re.DOTALL | re.IGNORECASE).strip()
                 logger.info(f"Retry response length: {len(lesson_content)} characters")
             
-            # Check if content appears to be truncated (doesn't end with proper punctuation)
-            # Allow emojis at the end, but check the text before emojis
-            # Remove trailing emojis and whitespace to check actual ending
+            # Emojis may trail after punctuation; strip them before checking for truncation
             text_without_emojis = re.sub(r'[\s\U0001F300-\U0001F9FF]+$', '', lesson_content.rstrip())
             if lesson_content and text_without_emojis and not text_without_emojis.endswith(('.', '!', '?', ':', ';')):
                 logger.warning(f"Content appears truncated, attempting to complete: {lesson_content[-100:]}")
-                # Try to complete the truncated content
-                # Language instruction for completion
                 lang_instruction = ""
                 if language != "en":
                     from .language import get_language_name
@@ -226,18 +220,15 @@ Continue the lesson naturally, referencing what was just covered and building on
                 
                 if completion_response.choices[0].message.content:
                     completion = completion_response.choices[0].message.content.strip()
-                    # Strip think tags from completion
                     completion = re.sub(r'<think>.*?</think>', '', completion, flags=re.DOTALL | re.IGNORECASE).strip()
-                    # Remove any duplicate text at the start
+                    # Avoid appending text that duplicates the end of existing content
                     if lesson_content.endswith(completion[:20]):
                         lesson_content = lesson_content.rstrip()
                     else:
                         lesson_content += " " + completion
                     
-                    # Ensure completion ends with punctuation (before any emojis)
                     text_without_emojis = re.sub(r'[\s\U0001F300-\U0001F9FF]+$', '', lesson_content.rstrip())
                     if text_without_emojis and not text_without_emojis.endswith(('.', '!', '?', ':', ';')):
-                        # Add punctuation if missing
                         lesson_content = lesson_content.rstrip() + '.'
                     
                     logger.info(f"Successfully completed truncated content")
@@ -249,17 +240,15 @@ Continue the lesson naturally, referencing what was just covered and building on
                 if len(lesson_content) < 50:
                     raise Exception("Generated content too short")
                 
-                # Final check - if still over limit, truncate at sentence boundary but ensure it ends properly
                 if len(lesson_content) > 1400:
                     logger.warning(f"Response still too long ({len(lesson_content)} chars), truncating at sentence boundary")
                     sentences = lesson_content.split('. ')
                     truncated = ""
                     for sentence in sentences:
-                        if len(truncated + sentence + '. ') <= 1350:  # Leave room for proper ending
+                        if len(truncated + sentence + '. ') <= 1350:
                             truncated += sentence + '. '
                         else:
                             break
-                    # Ensure it ends with punctuation
                     truncated = truncated.strip()
                     if not truncated.endswith(('.', '!', '?')):
                         truncated += '.'
@@ -456,7 +445,6 @@ Continue the lesson naturally, referencing what was just covered and building on
         else:
             style_guide = "Use detailed explanations with comprehensive examples and professional contexts. You may add a few relevant emojis for tone."
         
-        # Language instruction
         lang_instruction = ""
         if language != "en":
             from .language import get_language_name
@@ -464,7 +452,6 @@ Continue the lesson naturally, referencing what was just covered and building on
             lang_instruction = f"\n- Language: Generate the entire lesson in {lang_name} ({language.upper()}). All text, explanations, examples, and responses must be in {lang_name}."
         
         if is_continuation and previous_content:
-            # Continuation lesson
             system_prompt = f"""You are an expert educator and tutor.
 You are continuing a lesson on {topic}. The student has already learned the previous part.
 
@@ -498,7 +485,6 @@ IMPORTANT:
 
 AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for listening: use short, complete sentences; avoid markdown headers (##) and bullet lists—use flowing prose instead; do not include instructions like "Type /next"; use minimal or no emojis; write as if you are speaking to the student."""
             
-            # Add language instruction to user prompt as well for reinforcement
             user_lang_note = ""
             if language != "en":
                 from .language import get_language_name
@@ -512,7 +498,6 @@ Previous part of the lesson:
 
 Continue the lesson naturally, referencing what was just covered and building on it!{user_lang_note}"""
         else:
-            # New lesson
             system_prompt = f"""You are an expert educator and tutor.
 Your goal is to teach a topic clearly and concisely so that the learner fully understands it.
 
@@ -552,7 +537,6 @@ IMPORTANT:
 
 AUDIO/TTS MODE: Your reply will be read aloud by text-to-speech. Write for listening: use short, complete sentences; avoid markdown headers (##) and bullet lists—use flowing prose instead; do not include instructions like "Type /next"; use minimal or no emojis; write as if you are speaking to the student."""
             
-            # Add language instruction to user prompt as well for reinforcement
             user_lang_note = ""
             if language != "en":
                 from .language import get_language_name

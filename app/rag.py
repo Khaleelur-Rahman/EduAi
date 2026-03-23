@@ -200,10 +200,9 @@ class RAGService:
         return filename.replace('.md', '').replace('_', ' ').title()
     
     def retrieve_relevant_chunks(self, query: str, limit: int = 5):
-        # Step 1: Embed the query
-        query_embedding = self.embedding_model.encode(query, convert_to_numpy=True)
+        # ChromaDB requires embeddings as Python lists, not numpy arrays
+        query_embedding = self.embedding_model.encode(query, convert_to_numpy=True).tolist()
 
-        # Step 2: Query Chroma
         results = self.collection.query(
             query_embeddings=[query_embedding],
             n_results=limit * 3, 
@@ -214,11 +213,10 @@ class RAGService:
         metadatas = results['metadatas'][0]
         distances = results['distances'][0]
 
-        # Step 3: Normalize cosine distance → similarity score
-        similarities = [(1 - d / 2) for d in distances]  # for cosine distance in [0 to 2]
+        # Cosine distance is in [0, 2]; convert to similarity in [0, 1]
+        similarities = [(1 - d / 2) for d in distances]
         results_with_scores = list(zip(documents, metadatas, similarities))
 
-        # Step 4: Optional re-ranking with cross-encoder
         if self.use_reranker:
             # Prepare pairs (query, doc)
             pairs = [(query, doc) for doc, _, _ in results_with_scores]
@@ -230,18 +228,16 @@ class RAGService:
             if max_rerank > min_rerank:
                 normalized_rerank_scores = [(score - min_rerank) / (max_rerank - min_rerank) for score in rerank_scores]
             else:
-                normalized_rerank_scores = [0.5] * len(rerank_scores)  # All same score
+                normalized_rerank_scores = [0.5] * len(rerank_scores)
             
-            # Combine both scores (weighted)
-            rerank_weight = 0.7  # 70% re-ranker, 30% embedding similarity
+            # Weighted blend: 70% cross-encoder, 30% embedding similarity
+            rerank_weight = 0.7
             for i, (doc, meta, sim) in enumerate(results_with_scores):
                 combined_score = rerank_weight * normalized_rerank_scores[i] + (1 - rerank_weight) * sim
                 results_with_scores[i] = (doc, meta, combined_score)
 
-        # Step 5: Sort by combined score (descending)
         ranked_results = sorted(results_with_scores, key=lambda x: x[2], reverse=True)
 
-        # Step 6: Convert to dictionary and return top-k final results
         chunks = []
         for doc, metadata, similarity_score in ranked_results[:limit]:
             chunks.append({

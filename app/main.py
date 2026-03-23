@@ -97,52 +97,43 @@ def _detect_command_and_send_loading(phone_number: str, message: str, language: 
     msg_lower = message.strip().lower()
     msg_stripped = message.strip()
     
-    # Detect /language command
     if msg_lower.startswith("/language") or msg_lower.startswith("/lang"):
-        # Don't send loading for language command
         return
     
-    # Detect /next command FIRST (before /lesson to avoid confusion)
+    # Check /next before /lesson to avoid ambiguity
     if msg_lower == "/next" or msg_lower.startswith("/next "):
         _send_loading_message(phone_number, "next", None, language)
         return
     
-    # Detect /audio next
     if msg_lower == "/audio next" or msg_lower.startswith("/audio next "):
         _send_loading_message(phone_number, "next", None, language)
         return
     
-    # Detect /audio commands
     if msg_lower.startswith("/audio "):
         topic = msg_stripped[7:].strip()
         if topic and topic.lower() != "next":
-            _send_loading_message(phone_number, "lesson", topic, language)
+            _send_loading_message(phone_number, "audio", topic, language)
             return
     
-    # Detect /lesson command
     if msg_lower.startswith("/lesson "):
         topic = msg_stripped[7:].strip()
         if topic:
             _send_loading_message(phone_number, "lesson", topic, language)
             return
     
-    # Detect /quiz command
     if msg_lower.startswith("/quiz"):
         _send_loading_message(phone_number, "quiz", None, language)
         return
     
-    # Detect /video command
     if msg_lower.startswith("/video"):
         topic = msg_stripped[6:].strip() if len(msg_stripped) > 6 else ""
         _send_loading_message(phone_number, "video", topic or None, language)
         return
     
-    # Detect /progress and /review commands
     if msg_lower.startswith("/progress") or msg_lower.startswith("/review"):
         _send_loading_message(phone_number, "progress", None, language)
         return
     
-    # Detect voice-friendly formats
     if msg_lower.startswith("teach me about "):
         topic = msg_stripped[len("teach me about "):].strip()
         if topic:
@@ -155,7 +146,6 @@ def _detect_command_and_send_loading(phone_number: str, message: str, language: 
             _send_loading_message(phone_number, "lesson", topic, language)
             return
     
-    # Detect plain "next" (voice format)
     if msg_lower == "next" or (msg_lower.startswith("next ") and len(msg_lower.split()) <= 2):
         _send_loading_message(phone_number, "next")
         return
@@ -189,10 +179,9 @@ async def lifespan(app: FastAPI):
     create_tables()
     logger.info("Database tables created/verified")
     if _is_render_free_tier():
-        # Prod (Render free tier): defer init to first use so server binds quickly and fits 512MB; RAG is skipped entirely
+        # Defer init to first use so server binds quickly and fits 512MB; RAG disabled entirely
         logger.info("LLM, RAG, and audio will initialize on first use (RENDER_FREE_TIER); RAG disabled")
     else:
-        # Local: load LLM and audio on startup; RAG at startup unless DEFER_RAG_INIT (dev = init RAG on first /lesson)
         try:
             logger.info("Initializing LLM model...")
             initialize_llm()
@@ -217,11 +206,9 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Failed to initialize audio services: {str(e)}")
             logger.warning("Application will continue but audio features may not be available")
-    # Ensure temp image directory exists (file-based storage so Twilio can fetch media after reload)
     _TEMP_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     logger.info("Temp image dir: %s", _TEMP_IMAGE_DIR)
     yield
-    # Cleanup: Clear temporary media stores on shutdown
     _temp_audio_store.clear()
     _temp_video_store.clear()
     logger.info("Shutting down EduBot application...")
@@ -287,7 +274,7 @@ def _compute_analytics(db: Session, user_id: int) -> Dict[str, Any]:
     total_lessons = len(progress_list)
     total_quizzes = len([q for q in quizzes_list if getattr(q, "completed", False)])
 
-    # Per-topic: parts completed (max lesson_step per topic, total_parts = max total_steps for that topic)
+    # Per-topic: max lesson_step and total_steps across all progress rows
     topic_parts = defaultdict(lambda: {"max_step": 0, "total_steps": 1})
     for p in progress_list:
         key = p.topic
@@ -297,7 +284,7 @@ def _compute_analytics(db: Session, user_id: int) -> Dict[str, Any]:
         {"topic": t, "parts_completed": data["max_step"], "total_parts": data["total_steps"]}
         for t, data in sorted(topic_parts.items())
     ]
-    unique_topics = len(topic_parts)  # Number of distinct topics the user has done at least one lesson part on
+    unique_topics = len(topic_parts)
 
     quiz_scores_pct = []
     for q in quizzes_list:
@@ -313,7 +300,6 @@ def _compute_analytics(db: Session, user_id: int) -> Dict[str, Any]:
             quiz_scores_pct.append(100 * score / total_q)
     average_quiz_score_pct = sum(quiz_scores_pct) / len(quiz_scores_pct) if quiz_scores_pct else 0
 
-    # Time series: by date (use created_at for lessons; for completed use updated_at)
     lessons_by_date = defaultdict(int)
     for p in progress_list:
         if getattr(p, "completed", False):
@@ -330,7 +316,6 @@ def _compute_analytics(db: Session, user_id: int) -> Dict[str, Any]:
     lessons_by_date_list = [{"date": k, "count": v} for k, v in sorted(lessons_by_date.items())]
     quizzes_by_date_list = [{"date": k, "count": v} for k, v in sorted(quizzes_by_date.items())]
 
-    # By topic: lesson count and average quiz score
     lesson_count_by_topic = defaultdict(int)
     for p in progress_list:
         lesson_count_by_topic[p.topic] += 1
@@ -401,9 +386,7 @@ async def serve_audio(audio_id: str, request: Request):
     
     audio_data = _temp_audio_store[audio_id]
     
-    # Check if audio has expired (1 hour TTL)
     if datetime.utcnow() - audio_data['created_at'] > timedelta(hours=1):
-        # Clean up expired audio
         del _temp_audio_store[audio_id]
         raise HTTPException(status_code=404, detail="Audio file expired")
     
@@ -430,6 +413,7 @@ async def serve_image(image_id: str, request: Request):
     Images are stored on disk so they remain available after process restarts (e.g. reload).
     """
     # Sanitize: only allow UUID-like ids (alphanumeric and hyphen)
+    # Only allow UUID-like IDs to prevent path traversal
     if not image_id.replace("-", "").isalnum() or len(image_id) > 64:
         raise HTTPException(status_code=404, detail="Image file not found or expired")
     dat_path, ct_path, ts_path = _image_paths(image_id)
@@ -519,7 +503,6 @@ def _store_temp_audio(audio_bytes: bytes, content_type: str) -> str:
         'created_at': datetime.utcnow()
     }
     
-    # Clean up old audio files (older than 1 hour)
     current_time = datetime.utcnow()
     expired_ids = [
         aid for aid, data in _temp_audio_store.items()
@@ -544,7 +527,6 @@ def _store_temp_image(image_bytes: bytes, content_type: str) -> str:
     except OSError as e:
         logger.error("Failed to write temp image %s: %s", image_id, e)
         raise
-    # Clean up expired image files from disk (older than TTL)
     cutoff = datetime.utcnow().timestamp() - (_TEMP_IMAGE_TTL_HOURS * 3600)
     for p in _TEMP_IMAGE_DIR.iterdir():
         if p.suffix != ".ts":
@@ -592,7 +574,6 @@ def _send_response_via_rest(request_or_base_url, phone_number: str, response) ->
     from_twilio = _whatsapp_from(TWILIO_PHONE_NUMBER)
     to_user = _whatsapp_from(phone_number) or f"whatsapp:{phone_number}"
     
-    # Extract base_url from request object or use string directly
     if hasattr(request_or_base_url, 'base_url'):
         base_url = request_or_base_url.base_url
     elif isinstance(request_or_base_url, str):
@@ -611,7 +592,6 @@ def _send_response_via_rest(request_or_base_url, phone_number: str, response) ->
         text = response.get("text", "")
         tts_failed = response.get("tts_failed", False)
         if tts_failed and text:
-            # Send error text
             try:
                 TWILIO_CLIENT.messages.create(
                     from_=from_twilio,
@@ -622,7 +602,6 @@ def _send_response_via_rest(request_or_base_url, phone_number: str, response) ->
             except Exception as e:
                 logger.error(f"Failed to send error text via REST: {e}")
         elif response.get("audio_segments"):
-            # Send audio segments
             segments = response["audio_segments"]
             try:
                 audio_ids = []
@@ -659,7 +638,6 @@ def _send_response_via_rest(request_or_base_url, phone_number: str, response) ->
                     except:
                         pass
         elif response.get("audio_bytes"):
-            # Single audio segment
             try:
                 audio_id = _store_temp_audio(
                     response["audio_bytes"],
@@ -680,7 +658,6 @@ def _send_response_via_rest(request_or_base_url, phone_number: str, response) ->
                     except:
                         pass
         elif response.get("image_bytes"):
-            # Image (e.g. from lesson or /next command)
             try:
                 image_id = _store_temp_image(
                     response["image_bytes"],
@@ -753,7 +730,6 @@ def _send_response_via_rest(request_or_base_url, phone_number: str, response) ->
                     except:
                         pass
         else:
-            # Plain text
             if text:
                 try:
                     TWILIO_CLIENT.messages.create(from_=from_twilio, to=to_user, body=text)
@@ -761,7 +737,6 @@ def _send_response_via_rest(request_or_base_url, phone_number: str, response) ->
                 except Exception as e:
                     logger.error(f"Failed to send text via REST: {e}")
     else:
-        # String response
         try:
             TWILIO_CLIENT.messages.create(from_=from_twilio, to=to_user, body=str(response))
             logger.info(f"Sent text response via REST ({len(str(response))} chars)")
@@ -779,7 +754,6 @@ def _apply_audio_or_fallback_response(request: Request, phone_number: str, respo
             twiml_response.message("Audio couldn't be generated. Here's your lesson:\n\n" + text)
         logger.info(f"TTS fallback: sent text backup ({len(text)} chars)")
     elif response.get("image_bytes"):
-        # Image (e.g. from /image or /next command)
         try:
             image_id = _store_temp_image(
                 response["image_bytes"],
@@ -950,7 +924,7 @@ def _process_message_in_background(
     base_url: str,
 ) -> None:
     """Process message and send response via REST API in background.
-    Uses its own DB session; do not pass the request-scoped session (it is closed after the response).
+    Uses its own DB session; do not pass the request-scoped session (closed after response).
     """
     from .db import SessionLocal
     db = SessionLocal()
@@ -961,7 +935,6 @@ def _process_message_in_background(
         elif msg_lower.startswith("/video"):
             response = process_whatsapp_message_request_video(db, phone_number, body_text)
         else:
-            # process_whatsapp_message now returns dict with image_bytes for text lessons
             response = process_whatsapp_message(db, phone_number, body_text, for_audio=False)
         _send_response_via_rest(base_url, phone_number, response)
     except Exception as e:
@@ -994,7 +967,6 @@ async def whatsapp_webhook(
         
         num_media = int(NumMedia) if NumMedia else 0
         
-        # Handle audio media messages (voice notes)
         if num_media > 0 and MediaUrl0 and MediaContentType0:
             content_type = MediaContentType0.lower()
             if content_type.startswith('audio/'):
@@ -1025,14 +997,12 @@ async def whatsapp_webhook(
         body_text = Body or ""
         logger.info(f"Received WhatsApp message from {From}: {body_text[:100]}...")
         
-        # Get user to check language preference
         from .db import get_user_by_phone, create_user
         user = get_user_by_phone(db, phone_number)
         if not user:
             user = create_user(db, phone_number)
         user_language = user.language if user else "en"
         
-        # Handle /language command immediately
         msg_lower = body_text.strip().lower()
         if msg_lower.startswith("/language") or msg_lower.startswith("/lang"):
             from .language import validate_language_code, SUPPORTED_LANGUAGES, get_language_name
@@ -1076,8 +1046,8 @@ async def whatsapp_webhook(
         
         if is_command:
             msg_lower = body_text.strip().lower()
-            # Heavy commands (video, audio, lesson, next, quiz) can take minutes — must use background
-            # task so the webhook returns before Render/Twilio timeout (~30s); result sent via REST.
+            # Heavy commands can take minutes; must use background task so webhook returns before
+            # Render/Twilio's ~30s timeout. Result is delivered via REST API.
             is_heavy_command = (
                 msg_lower.startswith("/video") or
                 msg_lower.startswith("/audio") or
@@ -1090,7 +1060,7 @@ async def whatsapp_webhook(
                 msg_lower.startswith("quiz")
             )
             if _is_render_free_tier() and not is_heavy_command:
-                # Fast commands only (progress, review, help, language): process in-request
+                # Fast commands (progress, review, help): handle in-request on free tier
                 _detect_command_and_send_loading(phone_number, body_text, user_language)
                 response = process_whatsapp_message(db, phone_number, body_text)
                 twiml_response = MessagingResponse()
@@ -1100,7 +1070,6 @@ async def whatsapp_webhook(
                     twiml_response.message(response)
                 logger.info(f"Sending response to {phone_number} (render free tier, in-request)")
                 return Response(content=str(twiml_response), media_type="application/xml")
-            # Heavy commands (or local/paid): loading message + background task, respond via REST
             _detect_command_and_send_loading(phone_number, body_text, user_language)
             base_url = _get_base_url(request)
             background_tasks.add_task(_process_message_in_background, phone_number, body_text, base_url)
@@ -1110,11 +1079,9 @@ async def whatsapp_webhook(
             logger.info("Detected sandbox join message. Sending proactive welcome.")
             try:
                 response = process_whatsapp_message(db, phone_number, body_text, for_audio=False)
-                # Handle dict response (may contain image_bytes)
                 if isinstance(response, dict):
                     text = response.get("text", "")
                     if response.get("image_bytes"):
-                        # Send image with text via REST
                         _send_response_via_rest(_get_base_url(request), phone_number, response)
                     elif text:
                         TWILIO_CLIENT.messages.create(
@@ -1123,7 +1090,6 @@ async def whatsapp_webhook(
                             to=f"whatsapp:{phone_number}"
                         )
                 else:
-                    # String response (fallback)
                     TWILIO_CLIENT.messages.create(
                         body=str(response),
                         from_=f"whatsapp:{TWILIO_PHONE_NUMBER}",
@@ -1134,11 +1100,9 @@ async def whatsapp_webhook(
                 logger.error(f"Failed to send proactive welcome: {str(send_err)}")
                 pass
 
-        # Non-command messages: process normally and return TwiML
         if body_text.strip().lower().startswith("/audio"):
             response = process_whatsapp_message_request_audio(db, phone_number, body_text)
         else:
-            # process_whatsapp_message now returns dict with image_bytes for text lessons
             response = process_whatsapp_message(db, phone_number, body_text, for_audio=False)
 
         twiml_response = MessagingResponse()
@@ -1281,7 +1245,6 @@ async def dashboard_view(request: Request, db: Session = Depends(get_db)):
 
     progress = get_user_progress(db, user.id, limit=15)
     quizzes_raw = get_user_quizzes(db, user.id, limit=15)
-    # Build quiz list with total_questions for score display (e.g. 1/3)
     quizzes = []
     for q in quizzes_raw:
         total_q = 3
@@ -1479,7 +1442,6 @@ async def me_quiz_detail(quiz_id: int, request: Request, db: Session = Depends(g
         questions = json.loads(quiz.questions) if isinstance(quiz.questions, str) else quiz.questions
     except (TypeError, ValueError):
         questions = []
-    # Parse user_answers string (e.g. "1A, 2B, 3True") into per-question answers
     answer_dict = {}
     if quiz.user_answers:
         pairs = re.findall(r"\d+[A-DTtFf]|\d+(?:True|False)", quiz.user_answers, re.IGNORECASE)
@@ -1493,24 +1455,21 @@ async def me_quiz_detail(quiz_id: int, request: Request, db: Session = Depends(g
                 elif ans.upper() == "F":
                     ans = "False"
                 answer_dict[q_num] = ans
-    # Build list with user_answer and correct/incorrect per question
     result = []
     for i, q in enumerate(questions):
         q_num = i + 1
         user_ans = answer_dict.get(q_num, "")
         correct_ans = str(q.get("correct_answer", "")).strip()
         options = q.get("options") or []
-        # Resolve correct display: letter -> option text
         if correct_ans.upper() in ("A", "B", "C", "D") and len(options) >= ord(correct_ans.upper()) - 64:
             correct_display = options[ord(correct_ans.upper()) - 65]
         else:
             correct_display = correct_ans
-        # Resolve user answer display (letter -> option text)
         if user_ans and user_ans.upper() in ("A", "B", "C", "D") and len(options) >= ord(user_ans.upper()) - 64:
             user_display = options[ord(user_ans.upper()) - 65]
         else:
             user_display = user_ans or "(no answer)"
-        # True/False: normalize A/B to True/False for comparison
+        # Normalize A/B to True/False for true_false questions
         if q.get("type") == "true_false" and len(options) >= 2:
             correct_norm = "True" if str(options[0]).strip().lower() == "true" and correct_ans.upper() == "A" else "False"
             user_norm = "True" if (user_ans and (user_ans.upper() == "A" or str(user_ans).strip().lower() == "true")) else "False"
